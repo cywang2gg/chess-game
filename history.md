@@ -8,6 +8,7 @@
 - **Global Layout Reset**: 歸零 body 邊距並鎖定捲軸，實現 Zero Scrollbar 體驗。
 
 ### Fixed
+- **Drag-and-Drop Offset**: 移除了 ChessBoard 容器上的 CSS Transform，改用 Padding 調整佈局，解決了拖曳棋子時出現的滑鼠偏移問題。
 - **Negamax Logic**: 重構 AI 引擎，解決了舊版本在偶數深度會「自殺送子」的邏輯錯誤。
 - **Layout Shifting**: 將威脅邊框改為 inset boxShadow，解決了格子偏移 10px 的抖動問題。
 - **Invalid Move Crash**: 加入了 try-catch 與 Snap-back，防止非法移動導致程式崩潰。

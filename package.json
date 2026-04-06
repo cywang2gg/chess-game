@@ -2,6 +2,7 @@
   "name": "react-chess-game",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://cywang2gg.github.io/chess-game",
   "dependencies": {
     "chess.js": "^1.0.0-beta.8",
     "react": "^18.2.0",
@@ -10,7 +11,10 @@
     "react-scripts": "5.0.1"
   },
   "scripts": {
-    "start": "react-scripts start"
+    "start": "react-scripts start",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build",
+    "build": "react-scripts build"
   },
   "browserslist": {
     "production": [
@@ -23,5 +27,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "gh-pages": "^6.3.0"
   }
 }
