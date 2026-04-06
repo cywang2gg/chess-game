@@ -1,0 +1,10 @@
+{
+  "files": {
+    "main.js": "/chess-game/static/js/main.bda8670f.js",
+    "index.html": "/chess-game/index.html",
+    "main.bda8670f.js.map": "/chess-game/static/js/main.bda8670f.js.map"
+  },
+  "entrypoints": [
+    "static/js/main.bda8670f.js"
+  ]
+}
