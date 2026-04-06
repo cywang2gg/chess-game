@@ -43,24 +43,53 @@ export const checkThreats = (game) => {
     return threats;
 };
 
-// --- AI 核心 (Negamax 實作，避免視角混亂) ---
-
 export const getBestMove = (game, difficulty = 2) => {
-    // 即使是 Level 1，也至少搜尋 2 層，否則 AI 根本看不到玩家的反擊
-    const depth = Math.max(2, parseInt(difficulty));
     const moves = game.moves();
     if (moves.length === 0) return null;
 
+    // --- 根據難度設定隨機失誤率與搜尋深度 ---
+    let blunderRate = 0;
+    let depth = 2;
+
+    switch (parseInt(difficulty)) {
+        case 1: // Novice: 非常簡單，經常亂走
+            blunderRate = 0.5;
+            depth = 1;
+            break;
+        case 2: // Easy: 稍微會防守，但還是常出錯 (預設)
+            blunderRate = 0.2;
+            depth = 2;
+            break;
+        case 3: // Normal: 穩紮穩打
+            blunderRate = 0;
+            depth = 2;
+            break;
+        case 4: // Hard: 有點挑戰性
+            blunderRate = 0;
+            depth = 3;
+            break;
+        case 5: // Master: 專業對手
+            blunderRate = 0;
+            depth = 4;
+            break;
+        default:
+            depth = 2;
+    }
+
+    // 隨機判定是否發生「失誤」 (隨機選一步合法走法)
+    if (Math.random() < blunderRate) {
+        return moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    // --- 正常 Negamax 搜尋 ---
     let bestMove = null;
     let bestValue = -Infinity;
     const isWhite = game.turn() === 'w';
 
-    // 打亂移動順序增加隨機性
     moves.sort(() => Math.random() - 0.5);
 
     for (const move of moves) {
         game.move(move);
-        // 使用 Negamax 邏輯：當前玩家的分數 = -(對手在下一回合的分數)
         const boardValue = -negamax(game, depth - 1, -Infinity, Infinity, !isWhite);
         game.undo();
         
@@ -72,16 +101,13 @@ export const getBestMove = (game, difficulty = 2) => {
     return bestMove;
 };
 
-// 使用 Negamax 演算法，邏輯更乾淨且不易出錯
 function negamax(game, depth, alpha, beta, isWhiteTurn) {
-    if (depth === 0) {
-        return evaluateBoard(game);
-    }
+    if (depth <= 0) return evaluateBoard(game);
 
     const moves = game.moves();
     if (moves.length === 0) {
-        if (game.isCheckmate()) return -99999; // 被將死
-        return 0; // 和棋
+        if (game.isCheckmate()) return -99999;
+        return 0;
     }
 
     let max = -Infinity;
@@ -97,7 +123,6 @@ function negamax(game, depth, alpha, beta, isWhiteTurn) {
     return max;
 }
 
-// 統一評估函數：始終回傳 (當前輪到的人) 的優勢分數
 function evaluateBoard(game) {
     let totalEvaluation = 0;
     const board = game.board();
@@ -108,21 +133,13 @@ function evaluateBoard(game) {
             const piece = board[i][j];
             if (piece) {
                 let val = PIECE_VALUES[piece.type] || 0;
-                // PST 位置分
                 if (piece.type === 'p') val += (piece.color === 'w' ? PAWN_PST[i][j] : PAWN_PST[7 - i][j]);
                 else if (piece.type === 'n') val += KNIGHT_PST[i][j];
-                
-                // 如果是當前玩家的棋子，加分；否則減分
                 totalEvaluation += (piece.color === turn ? val : -val);
             }
         }
     }
-
-    // 將軍加分
     if (game.isCheck()) totalEvaluation += 50;
-
-    // 移動力加分 (正確的正負號)
     totalEvaluation += game.moves().length * 2;
-
     return totalEvaluation;
 }
