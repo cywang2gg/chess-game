@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import ChessBoard from './components/ChessBoard';
-import { checkThreats, getBestMove } from './logic/chessEngine';
+import { checkThreats, getBestMove, getLiveEval } from './logic/chessEngine';
 
 const AI_NAMES = [
   "Lord Voldemort", "Severus Snape", "Bellatrix Lestrange", 
@@ -17,6 +17,7 @@ function App() {
   const [timer, setTimer] = useState(0);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [history, setHistory] = useState([]);
+  const [evalScore, setEvalScore] = useState("0.0");
   
   const [playerName, setPlayerName] = useState("");
   const [aiName, setAiName] = useState("");
@@ -71,8 +72,9 @@ function App() {
       const result = gameCopy.move(move);
       if (result) {
         setGame(gameCopy);
-        setHistory(gameCopy.history());
+        setHistory(prev => [...prev, result.san]);
         setWarnings(checkThreats(gameCopy));
+        setEvalScore(getLiveEval(gameCopy));
         startTimer();
 
         if (!gameCopy.isGameOver()) {
@@ -92,11 +94,12 @@ function App() {
       return;
     }
     
-    gameInstance.move(bestMove);
+    const moveResult = gameInstance.move(bestMove);
     const newGame = new Chess(gameInstance.fen());
     setGame(newGame);
-    setHistory(newGame.history());
+    setHistory(prev => [...prev, moveResult.san]);
     setWarnings(checkThreats(newGame));
+    setEvalScore(getLiveEval(newGame));
     setIsAiThinking(false);
     startTimer();
   }
@@ -125,7 +128,24 @@ function App() {
         <h1 style={{ fontSize: '18px', marginBottom: '15px', color: themePrimary, fontWeight: '800' }}>CHESS MASTER</h1>
 
         <div style={{ backgroundColor: '#334155', padding: '12px', borderRadius: '12px', marginBottom: '12px' }}>
-          <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Current Match</div>
+          <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
+            <span>Current Match</span>
+            <span style={{ color: parseFloat(evalScore) >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+              {parseFloat(evalScore) > 0 ? `+${evalScore}` : evalScore}
+            </span>
+          </div>
+
+          {/* Evaluation Bar */}
+          <div style={{ height: '6px', width: '100%', backgroundColor: '#0f172a', borderRadius: '3px', margin: '8px 0', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ 
+              position: 'absolute', height: '100%', width: '50%', 
+              left: '50%', transformOrigin: 'left',
+              transform: `scaleX(${Math.max(-1, Math.min(1, parseFloat(evalScore) / 8))})`,
+              transition: 'transform 0.5s ease',
+              backgroundColor: parseFloat(evalScore) >= 0 ? '#10b981' : '#ef4444'
+            }}></div>
+          </div>
+
           <div style={{ margin: '8px 0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
               <span style={{ fontSize: '14px', color: game.turn() === 'w' ? '#fff' : '#64748b', fontWeight: game.turn() === 'w' ? 'bold' : 'normal' }}>⚪ {playerName || "Player"}</span>
@@ -158,9 +178,17 @@ function App() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px', marginBottom: '8px' }}>
-          {[1, 2, 3, 4, 5].map(l => (
-            <button key={l} onClick={() => setDifficulty(l)} style={{ padding: '6px 0', borderRadius: '4px', border: 'none', backgroundColor: difficulty === l ? themePrimary : '#334155', color: 'white', fontSize: '10px' }}>{l}</button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', marginBottom: '8px' }}>
+          {[1, 1.5, 2, 3, 4, 5, 'hope', 'desperate'].map(l => (
+            <button key={l} onClick={() => setDifficulty(l)} style={{ 
+              padding: '6px 0', borderRadius: '4px', border: 'none', 
+              backgroundColor: difficulty === l ? themePrimary : '#334155', 
+              color: 'white', fontSize: '9px',
+              gridColumn: (l === 'hope' || l === 'desperate') ? 'span 2' : 'auto',
+              fontWeight: (l === 'hope' || l === 'desperate') ? 'bold' : 'normal'
+            }}>
+              {l === 'hope' ? 'ALWAYS HOPE' : (l === 'desperate' ? 'DESPERATE' : l)}
+            </button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: '5px', marginBottom: '12px' }}>

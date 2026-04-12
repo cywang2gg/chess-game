@@ -25,6 +25,32 @@ const KNIGHT_PST = [
     [-50,-40,-30,-30,-30,-30,-40,-50]
 ];
 
+export const getLiveEval = (game) => {
+    // We always evaluate from White's perspective for the UI bar
+    let totalEvaluation = 0;
+    const board = game.board();
+
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            const piece = board[i][j];
+            if (piece) {
+                let val = PIECE_VALUES[piece.type] || 0;
+                // Add PST (Position) values for more accurate eval
+                if (piece.type === 'p') val += (piece.color === 'w' ? PAWN_PST[i][j] : PAWN_PST[7 - i][j]);
+                else if (piece.type === 'n') val += KNIGHT_PST[i][j];
+                
+                totalEvaluation += (piece.color === 'w' ? val : -val);
+            }
+        }
+    }
+    
+    // Checkmate / Stalemate adjustment
+    if (game.isCheckmate()) return game.turn() === 'w' ? -99.9 : 99.9;
+    if (game.isDraw()) return 0;
+
+    return (totalEvaluation / 100).toFixed(1);
+};
+
 export const checkThreats = (game) => {
     const threats = { defensive: [], offensive: [] };
     const board = game.board();
@@ -44,65 +70,68 @@ export const checkThreats = (game) => {
 };
 
 export const getBestMove = (game, difficulty = 2) => {
-    const moves = game.moves();
+    const moves = game.moves({ verbose: true });
     if (moves.length === 0) return null;
 
-    // --- 根據難度設定隨機失誤率與搜尋深度 ---
+    let targetDepth = 2;
     let blunderRate = 0;
-    let depth = 2;
-
-    switch (parseInt(difficulty)) {
-        case 1: // Novice: 非常簡單，經常亂走
-            blunderRate = 0.5;
-            depth = 1;
-            break;
-        case 2: // Easy: 稍微會防守，但還是常出錯 (預設)
-            blunderRate = 0.2;
-            depth = 2;
-            break;
-        case 3: // Normal: 穩紮穩打
-            blunderRate = 0;
-            depth = 2;
-            break;
-        case 4: // Hard: 有點挑戰性
-            blunderRate = 0;
-            depth = 3;
-            break;
-        case 5: // Master: 專業對手
-            blunderRate = 0;
-            depth = 4;
-            break;
-        default:
-            depth = 2;
-    }
-
-    // 隨機判定是否發生「失誤」 (隨機選一步合法走法)
-    if (Math.random() < blunderRate) {
-        return moves[Math.floor(Math.random() * moves.length)];
-    }
-
-    // --- 正常 Negamax 搜尋 ---
-    let bestMove = null;
-    let bestValue = -Infinity;
     const isWhite = game.turn() === 'w';
 
-    moves.sort(() => Math.random() - 0.5);
+    if (difficulty === 'hope') {
+        const balance = getMaterialBalance(game);
+        const advantage = isWhite ? balance : -balance;
+        targetDepth = (isEndgame(game) && advantage > 300) ? 2 : 3; // Slightly more depth for 'natural' mistakes
+        blunderRate = 0.08; // Lower base blunder, use probability selection instead
+    } else if (difficulty === 'desperate') {
+        targetDepth = 4;
+        blunderRate = 0;
+    } else {
+        const params = getDifficultyParams(difficulty);
+        targetDepth = params.depth;
+        blunderRate = params.blunderRate;
+    }
 
+    if (Math.random() < blunderRate) {
+        return moves[Math.floor(Math.random() * moves.length)].san;
+    }
+
+    moves.sort((a, b) => (b.captured ? PIECE_VALUES[b.captured] : 0) - (a.captured ? PIECE_VALUES[a.captured] : 0));
+
+    let scoredMoves = [];
     for (const move of moves) {
-        game.move(move);
-        const boardValue = -negamax(game, depth - 1, -Infinity, Infinity, !isWhite);
+        game.move(move.san);
+        // Add evaluation noise (+/- 15 points) to simulate human fuzzy thinking
+        const noise = (Math.random() * 30 - 15);
+        const boardValue = -negamax(game, targetDepth - 1, -Infinity, Infinity, !isWhite, difficulty) + noise;
         game.undo();
+        scoredMoves.push({ move: move.san, value: boardValue });
+    }
+
+    scoredMoves.sort((a, b) => b.value - a.value);
+
+    // --- Natural Decision Logic for HOPE ---
+    if (difficulty === 'hope') {
+        const bestVal = scoredMoves[0].value;
+        const candidates = scoredMoves.filter(m => (bestVal - m.value) < 80); // Moves within 0.8 pawn value
         
-        if (boardValue > bestValue) {
-            bestValue = boardValue;
-            bestMove = move;
+        if (candidates.length > 1) {
+            // Weighted selection: The better the move, the higher the chance
+            // This prevents the AI from picking a 'terrible' move just because it's index 2
+            const weights = candidates.map((m, i) => Math.exp(-i * 1.5)); // Rapidly decaying weights
+            const totalWeight = weights.reduce((a, b) => a + b, 0);
+            let r = Math.random() * totalWeight;
+            for (let i = 0; i < candidates.length; i++) {
+                if (r < weights[i]) return candidates[i].move;
+                r -= weights[i];
+            }
         }
     }
-    return bestMove;
+
+    return scoredMoves[0].move;
 };
 
-function negamax(game, depth, alpha, beta, isWhiteTurn) {
-    if (depth <= 0) return evaluateBoard(game);
+function negamax(game, depth, alpha, beta, isWhiteTurn, mode = 'normal') {
+    if (depth <= 0) return evaluateBoard(game, mode);
 
     const moves = game.moves();
     if (moves.length === 0) {
@@ -110,10 +139,19 @@ function negamax(game, depth, alpha, beta, isWhiteTurn) {
         return 0;
     }
 
+    // Natural Drawing Logic for DESPERATE mode
+    if (mode === 'desperate' && game.isDraw()) {
+        const balance = getMaterialBalance(game);
+        const advantage = game.turn() === 'w' ? balance : -balance;
+        // If I am losing, a draw is as good as being even (0 evaluation)
+        // This makes the AI "naturally" aim for a draw only when it's better than current state
+        if (advantage < -150) return -advantage; 
+    }
+
     let max = -Infinity;
     for (const move of moves) {
         game.move(move);
-        const score = -negamax(game, depth - 1, -beta, -alpha, !isWhiteTurn);
+        const score = -negamax(game, depth - 1, -beta, -alpha, !isWhiteTurn, mode);
         game.undo();
         
         if (score > max) max = score;
@@ -123,7 +161,7 @@ function negamax(game, depth, alpha, beta, isWhiteTurn) {
     return max;
 }
 
-function evaluateBoard(game) {
+function evaluateBoard(game, mode = 'normal') {
     let totalEvaluation = 0;
     const board = game.board();
     const turn = game.turn();
@@ -139,7 +177,56 @@ function evaluateBoard(game) {
             }
         }
     }
-    if (game.isCheck()) totalEvaluation += 50;
-    totalEvaluation += game.moves().length * 2;
+
+    // Desperate mode specific evaluation
+    if (mode === 'desperate') {
+        if (game.isCheck()) totalEvaluation += 100; // More aggressive check-seeking
+    } else {
+        if (game.isCheck()) totalEvaluation += 50;
+    }
+
     return totalEvaluation;
+}
+
+function getDifficultyParams(level) {
+    let blunderRate = 0;
+    let depth = 2;
+
+    const l = parseFloat(level);
+
+    if (l === 1) { 
+        blunderRate = 0.5;
+        depth = 1;
+    } else if (l === 1.5) {
+        blunderRate = 0.35;
+        depth = 2;
+    } else if (l === 2) { 
+        blunderRate = 0.2;
+        depth = 2;
+    } else if (l === 3) { 
+        blunderRate = 0;
+        depth = 2;
+    } else if (l === 4) { 
+        blunderRate = 0;
+        depth = 3;
+    } else if (l === 5) { 
+        blunderRate = 0;
+        depth = 4;
+    }
+    return { depth, blunderRate };
+}
+
+function getMaterialBalance(game) {
+    let balance = 0;
+    const board = game.board();
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            const piece = board[i][j];
+            if (piece) {
+                const val = PIECE_VALUES[piece.type] || 0;
+                balance += (piece.color === 'w' ? val : -val);
+            }
+        }
+    }
+    return balance;
 }
