@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
+import { SUGGESTION_COLORS } from '../logic/chessEngine';
 
-export default function ChessBoard({ game, onMove, warnings, sceneColor }) {
+export default function ChessBoard({ game, onMove, warnings, sceneColor, suggestions = [] }) {
   const [optionSquares, setOptionSquares] = useState({});
   const [boardWidth, setBoardWidth] = useState(600);
 
@@ -37,21 +38,40 @@ export default function ChessBoard({ game, onMove, warnings, sceneColor }) {
 
   useEffect(() => {
     updateBoardStyles();
-  }, [warnings, game, sceneColor]);
+  }, [warnings, game, sceneColor, suggestions]);
 
   function updateBoardStyles(clickedSquare = null) {
     const newStyles = {};
 
-    // 1. 防守風險 (紅色不變)
+    // 1. 建議棋路高亮 (最高優先)
+    if (suggestions.length > 0) {
+      suggestions.forEach((s) => {
+        const color = SUGGESTION_COLORS[s.type];
+        // 來源格 - 背景高亮
+        newStyles[s.from] = {
+          ...newStyles[s.from],
+          background: color.bg,
+          boxShadow: `inset 0 0 0 3px ${color.border}`,
+        };
+        // 目標格 - 線條指示
+        newStyles[s.to] = {
+          ...newStyles[s.to],
+          background: `radial-gradient(circle, ${color.bg} 60%, transparent 70%)`,
+        };
+      });
+    }
+
+    // 2. 防守風險 (紅色不變)
     if (warnings.defensive) {
       warnings.defensive.forEach((square) => {
         newStyles[square] = {
+          ...newStyles[square],
           background: 'rgba(239, 68, 68, 0.4)', 
         };
       });
     }
 
-    // 2. 進攻機會 (隨主題變色)
+    // 3. 進攻機會 (隨主題變色)
     if (warnings.offensive) {
       warnings.offensive.forEach((square) => {
         newStyles[square] = {
@@ -61,7 +81,7 @@ export default function ChessBoard({ game, onMove, warnings, sceneColor }) {
       });
     }
 
-    // 3. 移動點
+    // 4. 移動點
     if (clickedSquare) {
       const moves = game.moves({ square: clickedSquare, verbose: true });
       moves.forEach((move) => {

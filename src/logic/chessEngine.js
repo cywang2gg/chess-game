@@ -25,6 +25,74 @@ const KNIGHT_PST = [
     [-50,-40,-30,-30,-30,-30,-40,-50]
 ];
 
+// 建議棋路顏色 (綠/黃/橙)
+export const SUGGESTION_COLORS = {
+    best: { bg: 'rgba(34, 197, 94, 0.35)', border: '#22c55e', label: '🟢 最佳' },
+    good: { bg: 'rgba(234, 179, 8, 0.35)', border: '#eab308', label: '🟡 良好' },
+    decent: { bg: 'rgba(249, 115, 22, 0.35)', border: '#f97316', label: '🟠 可行' }
+};
+
+// 取得前 3 個最佳建議棋路
+export const getTopMoves = (game, depth = 3) => {
+    const moves = game.moves({ verbose: true });
+    if (moves.length === 0) return [];
+    
+    const isWhite = game.turn() === 'w';
+    let scoredMoves = [];
+    
+    for (const move of moves) {
+        game.move(move.san);
+        const boardValue = -negamax(game, depth - 1, -Infinity, Infinity, !isWhite, 'normal');
+        game.undo();
+        scoredMoves.push({
+            move: move,
+            san: move.san,
+            value: boardValue,
+            from: move.from,
+            to: move.to
+        });
+    }
+    
+    scoredMoves.sort((a, b) => b.value - a.value);
+    
+    // 取前 3 個並標記類型
+    const top3 = scoredMoves.slice(0, 3);
+    const bestVal = top3[0]?.value || 0;
+    
+    return top3.map((m, i) => {
+        let type = 'decent';
+        const diff = bestVal - m.value;
+        if (diff < 30) type = 'best';
+        else if (diff < 80) type = 'good';
+        
+        // 產生說明
+        let description = generateMoveDescription(game, m.move, m.value, bestVal, type);
+        
+        return { ...m, type, description };
+    });
+};
+
+// 產生棋路說明
+function generateMoveDescription(game, move, value, bestVal, type) {
+    const pieceNames = { p: '兵', n: '騎士', b: '主教', r: '城堡', q: '皇后', k: '國王' };
+    const piece = pieceNames[move.piece] || '棋子';
+    const captured = move.captured ? `吃掉 ${pieceNames[move.captured]}` : '';
+    
+    let desc = `${piece} ${move.from}→${move.to}`;
+    if (captured) desc += ` (${captured})`;
+    
+    // 添加戰術說明
+    if (move.san.includes('+')) desc += ' ⚠️ 將軍！';
+    if (move.promotion) desc += ' ↑ 升變';
+    
+    const diff = ((bestVal - value) / 100).toFixed(1);
+    if (type === 'best') desc += ' — 最強選擇';
+    else if (type === 'good') desc += ` — 比 ${diff} 子力弱`;
+    else desc += ` — 比 ${diff} 子力弱，但可行`;
+    
+    return desc;
+}
+
 export const getLiveEval = (game) => {
     // We always evaluate from White's perspective for the UI bar
     let totalEvaluation = 0;

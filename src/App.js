@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Chess } from 'chess.js';
 import ChessBoard from './components/ChessBoard';
-import { checkThreats, getBestMove, getLiveEval } from './logic/chessEngine';
+import { checkThreats, getBestMove, getLiveEval, getTopMoves, SUGGESTION_COLORS } from './logic/chessEngine';
 
 const AI_NAMES = [
   "Lord Voldemort", "Severus Snape", "Bellatrix Lestrange", 
@@ -23,8 +23,15 @@ function App() {
   const [aiName, setAiName] = useState("");
   const [showNameModal, setShowNameModal] = useState(true);
   const [tempName, setTempName] = useState("");
+  const [showGuide, setShowGuide] = useState(true);  // 預設開啟建議
 
   const timerRef = useRef(null);
+  
+  // 計算建議棋路 (只在玩家回合且有開啟時)
+  const suggestions = useMemo(() => {
+    if (!showGuide || isAiThinking || game.isGameOver() || game.turn() !== 'w') return [];
+    return getTopMoves(new Chess(game.fen()), 2);
+  }, [game.fen(), showGuide, isAiThinking]);
 
   useEffect(() => {
     initNewGame(true);
@@ -198,11 +205,48 @@ function App() {
         </div>
 
         <button onClick={() => initNewGame(true)} style={{ width: '100%', padding: '10px', backgroundColor: themePrimary, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px', flexShrink: 0 }}>New Game</button>
+        
+        {/* 建議開關 */}
+        <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: '#334155', borderRadius: '6px' }}>
+          <span style={{ fontSize: '11px', color: '#94a3b8' }}>🎯 棋路建議</span>
+          <button onClick={() => setShowGuide(!showGuide)} style={{ 
+            width: '44px', height: '22px', borderRadius: '11px', border: 'none', 
+            backgroundColor: showGuide ? '#22c55e' : '#475569', cursor: 'pointer',
+            position: 'relative', transition: 'background-color 0.2s'
+          }}>
+            <div style={{ 
+              width: '18px', height: '18px', borderRadius: '50%', backgroundColor: 'white',
+              position: 'absolute', top: '2px', transition: 'left 0.2s',
+              left: showGuide ? '24px' : '2px'
+            }}></div>
+          </button>
+        </div>
+        
+        {/* 建議列表 */}
+        {showGuide && suggestions.length > 0 && (
+          <div style={{ marginTop: '8px', backgroundColor: '#0f172a', borderRadius: '8px', padding: '10px', maxHeight: '120px', overflowY: 'auto' }}>
+            <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '6px', textTransform: 'uppercase' }}>💡 建議棋路 (點擊查看)</div>
+            {suggestions.map((s, i) => (
+              <div key={i} style={{ 
+                padding: '6px 8px', 
+                marginBottom: '4px', 
+                borderRadius: '4px', 
+                fontSize: '11px',
+                backgroundColor: SUGGESTION_COLORS[s.type].bg,
+                borderLeft: `3px solid ${SUGGESTION_COLORS[s.type].border}`,
+                color: '#e2e8f0'
+              }}>
+                <div style={{ fontWeight: 'bold' }}>{SUGGESTION_COLORS[s.type].label} {s.san}</div>
+                <div style={{ fontSize: '9px', color: '#94a3b8', marginTop: '2px' }}>{s.description}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '10px', paddingBottom: '40px', position: 'relative' }}>
         <div>
-            <ChessBoard game={game} onMove={handleMove} warnings={warnings} sceneColor={sceneColor} />
+            <ChessBoard game={game} onMove={handleMove} warnings={warnings} sceneColor={sceneColor} suggestions={suggestions} />
         </div>
 
         {isGameOver && (
