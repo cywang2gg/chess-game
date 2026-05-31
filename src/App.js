@@ -98,11 +98,10 @@ function App() {
 
   function handleNameSubmit(e) {
     e.preventDefault();
-    if (tempName.trim()) {
-      setPlayerName(tempName);
-      setShowNameModal(false);
-      startTimer();
-    }
+    // 允許空白，自動設為 "User"
+    setPlayerName(tempName.trim() || "User");
+    setShowNameModal(false);
+    startTimer();
   }
 
   function handleMove(move) {
@@ -180,7 +179,8 @@ function App() {
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200 }}>
           <form onSubmit={handleNameSubmit} style={{ backgroundColor: '#1e293b', padding: isTablet ? '50px' : '40px', borderRadius: '20px', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', width: isTablet ? '500px' : '400px', border: `2px solid ${themePrimary}` }}>
             <h2 style={{ fontSize: isTablet ? '32px' : '24px', marginBottom: '20px', color: themePrimary }}>Enter Your Name</h2>
-            <input autoFocus type="text" value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Your name..." style={{ width: '100%', padding: isTablet ? '16px' : '12px', borderRadius: '8px', border: 'none', backgroundColor: '#334155', color: 'white', fontSize: isTablet ? '20px' : '16px', marginBottom: '20px', outline: 'none' }} />
+            <input autoFocus type="text" value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Your name (optional)..." style={{ width: '100%', padding: isTablet ? '16px' : '12px', borderRadius: '8px', border: 'none', backgroundColor: '#334155', color: 'white', fontSize: isTablet ? '20px' : '16px', marginBottom: '10px', outline: 'none' }} />
+            <div style={{ fontSize: isTablet ? '14px' : '11px', color: '#64748b', marginBottom: '15px' }}>Leave empty to use "User"</div>
             <button type="submit" style={{ width: '100%', padding: isTablet ? '16px' : '12px', backgroundColor: themePrimary, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: isTablet ? '20px' : '14px', cursor: 'pointer' }}>Start Game</button>
           </form>
         </div>
