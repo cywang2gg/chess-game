@@ -2,9 +2,30 @@ import React, { useState, useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { SUGGESTION_COLORS } from '../logic/chessEngine';
 
+// iPad 偵測
+const isIPad = () => {
+  return /iPad|Macintosh|Silk/i.test(navigator.userAgent) && 'ontouchend' in document;
+};
+
+const getDeviceType = () => {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const isLandscape = width > height;
+  const iPad = isIPad();
+  
+  return {
+    isIPad: iPad,
+    isLandscape,
+    isTablet: iPad || (width >= 768 && width <= 1024),
+    screenWidth: width,
+    screenHeight: height
+  };
+};
+
 export default function ChessBoard({ game, onMove, warnings, sceneColor, suggestions = [] }) {
   const [optionSquares, setOptionSquares] = useState({});
   const [boardWidth, setBoardWidth] = useState(600);
+  const [deviceType, setDeviceType] = useState(getDeviceType());
 
   // 定義主題色系
   const themes = {
@@ -28,12 +49,35 @@ export default function ChessBoard({ game, onMove, warnings, sceneColor, suggest
     function handleResize() {
       const height = window.innerHeight;
       const width = window.innerWidth;
-      const size = Math.min(height - 120, width - 420); 
+      const device = getDeviceType();
+      setDeviceType(device);
+      
+      // iPad 計算棋盤大小
+      let size;
+      if (device.isTablet) {
+        if (device.isLandscape) {
+          // 橫向：扣除側邊欄
+          size = Math.min(height - 80, width - 380);
+        } else {
+          // 直向：棋盤佔大部分空間
+          size = Math.min(width - 40, height - 400);
+        }
+      } else {
+        // 桌機/手機
+        size = Math.min(height - 120, width - 420);
+      }
+      
+      // 確保最小尺寸
+      size = Math.max(size, 300);
       setBoardWidth(size);
     }
     handleResize();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -133,7 +177,7 @@ export default function ChessBoard({ game, onMove, warnings, sceneColor, suggest
             animationDuration={300}
         />
         
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '11px', color: '#64748b', fontWeight: 'bold' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: deviceType.isTablet ? '15px' : '11px', color: '#64748b', fontWeight: 'bold' }}>
           <span>🛡️ DEFENSE: {warnings.defensive?.length || 0}</span>
           <span>⚔️ OFFENSE: {warnings.offensive?.length || 0}</span>
         </div>

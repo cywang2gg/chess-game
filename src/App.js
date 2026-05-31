@@ -9,6 +9,28 @@ const AI_NAMES = [
   "Peter Pettigrew", "Tom Riddle", "Gellert Grindelwald", "Barty Crouch Jr."
 ];
 
+// iPad 偵測
+const isIPad = () => {
+  return /iPad|Macintosh|Silk/i.test(navigator.userAgent) && 'ontouchend' in document;
+};
+
+// 取得裝置類型
+const getDeviceType = () => {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const isLandscape = width > height;
+  const iPad = isIPad();
+  
+  return {
+    isIPad: iPad,
+    isLandscape,
+    isMobile: width < 768,
+    isTablet: iPad || (width >= 768 && width <= 1024),
+    screenWidth: width,
+    screenHeight: height
+  };
+};
+
 function App() {
   const [game, setGame] = useState(new Chess());
   const [warnings, setWarnings] = useState({ defensive: [], offensive: [] });
@@ -24,8 +46,20 @@ function App() {
   const [showNameModal, setShowNameModal] = useState(true);
   const [tempName, setTempName] = useState("");
   const [showGuide, setShowGuide] = useState(true);  // 預設開啟建議
+  const [deviceType, setDeviceType] = useState(getDeviceType());
 
   const timerRef = useRef(null);
+  
+  // 監聽裝置方向變化
+  useEffect(() => {
+    const handleResize = () => setDeviceType(getDeviceType());
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
   
   // 計算建議棋路 (只在玩家回合且有開啟時)
   const suggestions = useMemo(() => {
@@ -114,28 +148,49 @@ function App() {
   const turn = game.turn() === 'w' ? 'White' : 'Black';
   const isGameOver = game.isGameOver();
   const themePrimary = sceneColor === 'blue' ? '#3b82f6' : '#f59e0b';
+  
+  // iPad 響應式樣式
+  const isTablet = deviceType.isTablet;
+  const isLandscape = deviceType.isLandscape;
+  const sidebarWidth = isTablet ? (isLandscape ? '320px' : '100%') : '300px';
+  const sidebarStyle = {
+    width: sidebarWidth,
+    height: isTablet && !isLandscape ? 'auto' : '100%',
+    backgroundColor: '#1e293b',
+    padding: isTablet ? '20px' : '15px 20px',
+    display: 'flex',
+    flexDirection: isTablet && !isLandscape ? 'row' : 'column',
+    boxShadow: '4px 0 15px rgba(0,0,0,0.3)',
+    zIndex: 10,
+    boxSizing: 'border-box',
+    gap: isTablet && !isLandscape ? '20px' : '0',
+    overflow: isTablet && !isLandscape ? 'auto' : 'visible'
+  };
 
   return (
     <div className="App" style={{ 
-      height: '100%', width: '100%', backgroundColor: '#0f172a', display: 'flex', overflow: 'hidden',
+      height: '100%', width: '100%', backgroundColor: '#0f172a', 
+      display: 'flex', 
+      flexDirection: isTablet && !isLandscape ? 'column' : 'row',
+      overflow: isTablet && !isLandscape ? 'auto' : 'hidden',
       color: '#f8fafc', boxSizing: 'border-box', fontFamily: 'system-ui, sans-serif'
     }}>
       
       {showNameModal && (
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200 }}>
-          <form onSubmit={handleNameSubmit} style={{ backgroundColor: '#1e293b', padding: '40px', borderRadius: '20px', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', width: '400px', border: `2px solid ${themePrimary}` }}>
-            <h2 style={{ fontSize: '24px', marginBottom: '20px', color: themePrimary }}>Enter Your Name</h2>
-            <input autoFocus type="text" value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Your name..." style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#334155', color: 'white', fontSize: '16px', marginBottom: '20px', outline: 'none' }} />
-            <button type="submit" style={{ width: '100%', padding: '12px', backgroundColor: themePrimary, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Start Game</button>
+          <form onSubmit={handleNameSubmit} style={{ backgroundColor: '#1e293b', padding: isTablet ? '50px' : '40px', borderRadius: '20px', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', width: isTablet ? '500px' : '400px', border: `2px solid ${themePrimary}` }}>
+            <h2 style={{ fontSize: isTablet ? '32px' : '24px', marginBottom: '20px', color: themePrimary }}>Enter Your Name</h2>
+            <input autoFocus type="text" value={tempName} onChange={(e) => setTempName(e.target.value)} placeholder="Your name..." style={{ width: '100%', padding: isTablet ? '16px' : '12px', borderRadius: '8px', border: 'none', backgroundColor: '#334155', color: 'white', fontSize: isTablet ? '20px' : '16px', marginBottom: '20px', outline: 'none' }} />
+            <button type="submit" style={{ width: '100%', padding: isTablet ? '16px' : '12px', backgroundColor: themePrimary, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: isTablet ? '20px' : '14px', cursor: 'pointer' }}>Start Game</button>
           </form>
         </div>
       )}
 
-      <div style={{ width: '300px', height: '100%', backgroundColor: '#1e293b', padding: '15px 20px', display: 'flex', flexDirection: 'column', boxShadow: '4px 0 15px rgba(0,0,0,0.3)', zIndex: 10, boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: '18px', marginBottom: '15px', color: themePrimary, fontWeight: '800' }}>CHESS MASTER</h1>
+      <div style={sidebarStyle}>
+        <h1 style={{ fontSize: isTablet ? '24px' : '18px', marginBottom: '15px', color: themePrimary, fontWeight: '800' }}>CHESS MASTER</h1>
 
-        <div style={{ backgroundColor: '#334155', padding: '12px', borderRadius: '12px', marginBottom: '12px' }}>
-          <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ backgroundColor: '#334155', padding: isTablet ? '16px' : '12px', borderRadius: '12px', marginBottom: '12px' }}>
+          <div style={{ fontSize: isTablet ? '14px' : '10px', color: '#94a3b8', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
             <span>Current Match</span>
             <span style={{ color: parseFloat(evalScore) >= 0 ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
               {parseFloat(evalScore) > 0 ? `+${evalScore}` : evalScore}
@@ -155,25 +210,25 @@ function App() {
 
           <div style={{ margin: '8px 0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '14px', color: game.turn() === 'w' ? '#fff' : '#64748b', fontWeight: game.turn() === 'w' ? 'bold' : 'normal' }}>⚪ {playerName || "Player"}</span>
-              {game.turn() === 'w' && <span style={{ color: themePrimary }}>●</span>}
+              <span style={{ fontSize: isTablet ? '18px' : '14px', color: game.turn() === 'w' ? '#fff' : '#64748b', fontWeight: game.turn() === 'w' ? 'bold' : 'normal' }}>⚪ {playerName || "Player"}</span>
+              {game.turn() === 'w' && <span style={{ color: themePrimary, fontSize: isTablet ? '20px' : '14px' }}>●</span>}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '14px', color: game.turn() === 'b' ? '#fff' : '#64748b', fontWeight: game.turn() === 'b' ? 'bold' : 'normal' }}>⚫ {aiName || "AI"}</span>
-              {game.turn() === 'b' && <span style={{ color: themePrimary }}>●</span>}
+              <span style={{ fontSize: isTablet ? '18px' : '14px', color: game.turn() === 'b' ? '#fff' : '#64748b', fontWeight: game.turn() === 'b' ? 'bold' : 'normal' }}>⚫ {aiName || "AI"}</span>
+              {game.turn() === 'b' && <span style={{ color: themePrimary, fontSize: isTablet ? '20px' : '14px' }}>●</span>}
             </div>
           </div>
           <div style={{ height: '3px', width: '100%', backgroundColor: '#475569', borderRadius: '2px', position: 'relative', overflow: 'hidden' }}>
              <div style={{ position: 'absolute', width: '50%', height: '100%', backgroundColor: themePrimary, left: game.turn() === 'w' ? 0 : '50%', transition: 'left 0.3s ease' }}></div>
           </div>
           <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-             <span style={{ fontSize: '10px', color: '#94a3b8' }}>{isAiThinking ? "THINKING..." : "YOUR TURN"}</span>
-             <span style={{ fontSize: '20px', fontWeight: 'mono', color: '#ef4444' }}>{timer}s</span>
+             <span style={{ fontSize: isTablet ? '14px' : '10px', color: '#94a3b8' }}>{isAiThinking ? "THINKING..." : "YOUR TURN"}</span>
+             <span style={{ fontSize: isTablet ? '28px' : '20px', fontWeight: 'mono', color: '#ef4444' }}>{timer}s</span>
           </div>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', backgroundColor: '#0f172a', borderRadius: '8px', padding: '10px', marginBottom: '12px', fontSize: '12px' }}>
-          <div style={{ color: '#64748b', marginBottom: '5px', fontSize: '10px' }}>MOVE HISTORY</div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', backgroundColor: '#0f172a', borderRadius: '8px', padding: '10px', marginBottom: '12px', fontSize: isTablet ? '16px' : '12px' }}>
+          <div style={{ color: '#64748b', marginBottom: '5px', fontSize: isTablet ? '14px' : '10px' }}>MOVE HISTORY</div>
           <div style={{ display: 'grid', gridTemplateColumns: '25px 1fr 1fr', gap: '4px' }}>
             {Array.from({ length: Math.ceil(history.length / 2) }).map((_, i) => (
               <React.Fragment key={i}>
@@ -185,14 +240,15 @@ function App() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', marginBottom: '8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isTablet ? '8px' : '4px', marginBottom: '8px' }}>
           {[1, 1.5, 2, 3, 4, 5, 'hope', 'desperate'].map(l => (
             <button key={l} onClick={() => setDifficulty(l)} style={{ 
-              padding: '6px 0', borderRadius: '4px', border: 'none', 
+              padding: isTablet ? '12px 0' : '6px 0', borderRadius: '6px', border: 'none', 
               backgroundColor: difficulty === l ? themePrimary : '#334155', 
-              color: 'white', fontSize: '9px',
+              color: 'white', fontSize: isTablet ? '12px' : '9px',
               gridColumn: (l === 'hope' || l === 'desperate') ? 'span 2' : 'auto',
-              fontWeight: (l === 'hope' || l === 'desperate') ? 'bold' : 'normal'
+              fontWeight: (l === 'hope' || l === 'desperate') ? 'bold' : 'normal',
+              minHeight: isTablet ? '44px' : 'auto'
             }}>
               {l === 'hope' ? 'ALWAYS HOPE' : (l === 'desperate' ? 'DESPERATE' : l)}
             </button>
@@ -200,44 +256,75 @@ function App() {
         </div>
         <div style={{ display: 'flex', gap: '5px', marginBottom: '12px' }}>
           {['blue', 'yellow'].map(c => (
-            <button key={c} onClick={() => setSceneColor(c)} style={{ flex: 1, padding: '5px 0', borderRadius: '4px', border: 'none', backgroundColor: sceneColor === c ? (c==='blue'?'#3b82f6':'#f59e0b') : '#334155', color: 'white', fontSize: '9px', textTransform: 'uppercase' }}>{c}</button>
+            <button key={c} onClick={() => setSceneColor(c)} style={{ 
+              flex: 1, 
+              padding: isTablet ? '12px 0' : '5px 0', 
+              borderRadius: '6px', 
+              border: 'none', 
+              backgroundColor: sceneColor === c ? (c==='blue'?'#3b82f6':'#f59e0b') : '#334155', 
+              color: 'white', 
+              fontSize: isTablet ? '14px' : '9px', 
+              textTransform: 'uppercase',
+              minHeight: isTablet ? '44px' : 'auto'
+            }}>{c}</button>
           ))}
         </div>
 
-        <button onClick={() => initNewGame(true)} style={{ width: '100%', padding: '10px', backgroundColor: themePrimary, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px', flexShrink: 0 }}>New Game</button>
+        <button onClick={() => initNewGame(true)} style={{ 
+          width: '100%', 
+          padding: isTablet ? '16px' : '10px', 
+          backgroundColor: themePrimary, 
+          color: 'white', 
+          border: 'none', 
+          borderRadius: '8px', 
+          fontWeight: 'bold', 
+          fontSize: isTablet ? '18px' : '14px', 
+          flexShrink: 0,
+          minHeight: isTablet ? '56px' : 'auto'
+        }}>New Game</button>
         
         {/* 建議開關 */}
-        <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: '#334155', borderRadius: '6px' }}>
-          <span style={{ fontSize: '11px', color: '#94a3b8' }}>🎯 棋路建議</span>
+        <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isTablet ? '12px 14px' : '8px 10px', backgroundColor: '#334155', borderRadius: '8px' }}>
+          <span style={{ fontSize: isTablet ? '16px' : '11px', color: '#94a3b8' }}>🎯 棋路建議</span>
           <button onClick={() => setShowGuide(!showGuide)} style={{ 
-            width: '44px', height: '22px', borderRadius: '11px', border: 'none', 
-            backgroundColor: showGuide ? '#22c55e' : '#475569', cursor: 'pointer',
-            position: 'relative', transition: 'background-color 0.2s'
+            width: isTablet ? '60px' : '44px', 
+            height: isTablet ? '32px' : '22px', 
+            borderRadius: isTablet ? '16px' : '11px', 
+            border: 'none', 
+            backgroundColor: showGuide ? '#22c55e' : '#475569', 
+            cursor: 'pointer',
+            position: 'relative', 
+            transition: 'background-color 0.2s'
           }}>
             <div style={{ 
-              width: '18px', height: '18px', borderRadius: '50%', backgroundColor: 'white',
-              position: 'absolute', top: '2px', transition: 'left 0.2s',
-              left: showGuide ? '24px' : '2px'
+              width: isTablet ? '26px' : '18px', 
+              height: isTablet ? '26px' : '18px', 
+              borderRadius: '50%', 
+              backgroundColor: 'white',
+              position: 'absolute', 
+              top: isTablet ? '3px' : '2px', 
+              transition: 'left 0.2s',
+              left: showGuide ? (isTablet ? '31px' : '24px') : (isTablet ? '3px' : '2px')
             }}></div>
           </button>
         </div>
         
         {/* 建議列表 */}
         {showGuide && suggestions.length > 0 && (
-          <div style={{ marginTop: '8px', backgroundColor: '#0f172a', borderRadius: '8px', padding: '10px', maxHeight: '120px', overflowY: 'auto' }}>
-            <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '6px', textTransform: 'uppercase' }}>💡 建議棋路 (點擊查看)</div>
+          <div style={{ marginTop: '8px', backgroundColor: '#0f172a', borderRadius: '8px', padding: isTablet ? '14px' : '10px', maxHeight: isTablet ? '180px' : '120px', overflowY: 'auto' }}>
+            <div style={{ fontSize: isTablet ? '14px' : '10px', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase' }}>💡 建議棋路 (點擊查看)</div>
             {suggestions.map((s, i) => (
               <div key={i} style={{ 
-                padding: '6px 8px', 
-                marginBottom: '4px', 
-                borderRadius: '4px', 
-                fontSize: '11px',
+                padding: isTablet ? '10px 12px' : '6px 8px', 
+                marginBottom: '6px', 
+                borderRadius: '6px', 
+                fontSize: isTablet ? '15px' : '11px',
                 backgroundColor: SUGGESTION_COLORS[s.type].bg,
-                borderLeft: `3px solid ${SUGGESTION_COLORS[s.type].border}`,
+                borderLeft: `4px solid ${SUGGESTION_COLORS[s.type].border}`,
                 color: '#e2e8f0'
               }}>
                 <div style={{ fontWeight: 'bold' }}>{SUGGESTION_COLORS[s.type].label} {s.san}</div>
-                <div style={{ fontSize: '9px', color: '#94a3b8', marginTop: '2px' }}>{s.description}</div>
+                <div style={{ fontSize: isTablet ? '13px' : '9px', color: '#94a3b8', marginTop: '4px' }}>{s.description}</div>
               </div>
             ))}
           </div>
