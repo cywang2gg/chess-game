@@ -126,7 +126,42 @@ function Gomoku() {
     return { count, openEnds };
   }, [size]);
 
-  // 評估單一位置
+  // 檢測雙威脅（雙三、雙四、三四組合）
+  const checkDoubleThreats = useCallback((boardState, row, col, player) => {
+    let liveThrees = 0;
+    let rushFours = 0;
+    let liveFours = 0;
+    
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+    
+    for (const [dr, dc] of directions) {
+      const line = countLine(boardState, row, col, dr, dc, player);
+      
+      // 活三：3連 + 2開口
+      if (line.count >= 2 && line.openEnds === 2) {
+        liveThrees++;
+      }
+      
+      // 活四：4連 + 至少1開口
+      if (line.count >= 3 && line.openEnds >= 1) {
+        liveFours++;
+      }
+      
+      // 沖四：4連 + 1開口
+      if (line.count >= 3 && line.openEnds === 1) {
+        rushFours++;
+      }
+    }
+    
+    // 雙三、雙四、三四組合 = 必勝
+    if (liveThrees >= 2) return 80000;  // 雙活三
+    if (liveFours >= 2 || rushFours >= 2) return 90000;  // 雙四
+    if (liveThrees >= 1 && rushFours >= 1) return 90000;  // 三四組合
+    
+    return 0;
+  }, [size, countLine]);
+
+  // 評估單一位置（改進版：完整棋型評分 + 雙威脅檢測）
   const evaluatePosition = useCallback((boardState, row, col, player) => {
     if (boardState[row][col] !== null) return 0;
     
@@ -134,35 +169,70 @@ function Gomoku() {
     const opponent = player === 'black' ? 'white' : 'black';
     const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
     
+    // 1. 立即獲勝檢查（最高優先級）
+    const testBoard1 = boardState.map(r => [...r]);
+    testBoard1[row][col] = player;
+    if (checkWin(testBoard1, row, col, player)) {
+      return 1000000;  // 立即獲勝
+    }
+    
+    // 2. 阻擋對手獲勝
+    const testBoard2 = boardState.map(r => [...r]);
+    testBoard2[row][col] = opponent;
+    if (checkWin(testBoard2, row, col, opponent)) {
+      return 950000;  // 必須防守
+    }
+    
+    // 3. 雙威脅檢測（必勝組合）
+    score += checkDoubleThreats(boardState, row, col, player);
+    score += checkDoubleThreats(boardState, row, col, opponent) * 0.95;
+    
+    // 4. 各方向棋型評分（完整 14 種棋型）
     for (const [dr, dc] of directions) {
-      // 攻擊評分
+      // AI 棋型評分
       const myLine = countLine(boardState, row, col, dr, dc, player);
-      const myCount = myLine.count + 1; // 包含自己
+      const myCount = myLine.count + 1;
       
+      // 成5: 100分
       if (myCount >= 5) score += 100000;
-      else if (myCount === 4 && myLine.openEnds === 2) score += 10000;
-      else if (myCount === 4 && myLine.openEnds === 1) score += 1000;
-      else if (myCount === 3 && myLine.openEnds === 2) score += 1000;
-      else if (myCount === 3 && myLine.openEnds === 1) score += 100;
-      else if (myCount === 2 && myLine.openEnds === 2) score += 100;
-      else if (myCount === 2 && myLine.openEnds === 1) score += 10;
+      // 活4: 90分
+      else if (myCount === 4 && myLine.openEnds === 2) score += 90000;
+      // 沖4: 60分
+      else if (myCount === 4 && myLine.openEnds === 1) score += 60000;
+      // 活3: 50分（關鍵！必須阻擋）
+      else if (myCount === 3 && myLine.openEnds === 2) score += 50000;
+      // 死3: 30分
+      else if (myCount === 3 && myLine.openEnds === 1) score += 30000;
+      // 活2: 20分
+      else if (myCount === 2 && myLine.openEnds === 2) score += 20000;
+      // 死2: 10分
+      else if (myCount === 2 && myLine.openEnds === 1) score += 10000;
       
-      // 防守評分（對手的威脅）
+      // 玩家棋型評分（防守加權 0.95）
       const oppLine = countLine(boardState, row, col, dr, dc, opponent);
       const oppCount = oppLine.count + 1;
       
-      if (oppCount >= 5) score += 90000; // 必須防守
-      else if (oppCount === 4 && oppLine.openEnds >= 1) score += 8000;
-      else if (oppCount === 3 && oppLine.openEnds === 2) score += 700;
+      // 活4: 90分 × 0.95
+      if (oppCount === 4 && oppLine.openEnds === 2) score += 85500;
+      // 沖4: 60分 × 0.95
+      else if (oppCount === 4 && oppLine.openEnds === 1) score += 57000;
+      // 活3: 50分 × 0.95（關鍵！必須阻擋）
+      else if (oppCount === 3 && oppLine.openEnds === 2) score += 47500;
+      // 死3: 30分 × 0.95
+      else if (oppCount === 3 && oppLine.openEnds === 1) score += 28500;
+      // 活2: 20分 × 0.95
+      else if (oppCount === 2 && oppLine.openEnds === 2) score += 19000;
+      // 死2: 10分 × 0.95
+      else if (oppCount === 2 && oppLine.openEnds === 1) score += 9500;
     }
     
-    // 中心位置加分
+    // 5. 位置加權（中心優先）
     const center = Math.floor(size / 2);
     const distFromCenter = Math.abs(row - center) + Math.abs(col - center);
-    score += Math.max(0, 10 - distFromCenter);
+    score += Math.max(0, 50 - distFromCenter);
     
     return score;
-  }, [size, countLine]);
+  }, [size, countLine, checkDoubleThreats, checkWin]);
 
   // 獲取候選位置
   const getCandidates = useCallback((boardState) => {
