@@ -94,10 +94,34 @@ function GameMenu() {
         </h1>
         <p style={{
           fontSize: isTablet ? '18px' : '14px',
-          color: '#94a3b8'
+          color: '#94a3b8',
+          marginBottom: '15px'
         }}>
           精選益智遊戲，挑戰你的智慧
         </p>
+        {/* 版本資訊 - 頁首顯示 */}
+        <div style={{
+          backgroundColor: '#1e293b',
+          padding: isTablet ? '12px 20px' : '8px 15px',
+          borderRadius: '12px',
+          display: 'inline-block',
+          marginTop: '10px'
+        }}>
+          <div style={{
+            fontSize: isTablet ? '16px' : '12px',
+            color: '#22c55e',
+            fontWeight: 'bold',
+            marginBottom: '4px'
+          }}>
+            📅 最後更新：2026-06-02 • v0.3
+          </div>
+          <div style={{
+            fontSize: isTablet ? '14px' : '11px',
+            color: '#94a3b8'
+          }}>
+            五子棋 AI：Alpha-Beta 搜索（深度 3）+ 置換表優化
+          </div>
+        </div>
       </header>
 
       {/* Game Grid */}
