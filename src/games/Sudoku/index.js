@@ -299,13 +299,17 @@ function Sudoku() {
       flexDirection: isTablet ? 'row' : 'column',
       color: '#f8fafc',
       fontFamily: 'system-ui, sans-serif',
+      overflow: 'hidden',
     }}>
-      {/* 側邊欄 */}
+      {/* 左側功能列 */}
       <div style={{
         width: isTablet ? '280px' : '100%',
+        minWidth: isTablet ? '280px' : 'auto',
         backgroundColor: '#1e293b',
         padding: isTablet ? '20px' : '15px',
         boxSizing: 'border-box',
+        overflowY: 'auto',
+        maxHeight: isTablet ? '100vh' : 'none',
       }}>
         <h1 style={{ fontSize: isTablet ? '28px' : '22px', color: '#10b981', marginBottom: '15px' }}>
           9 數獨 Sudoku
@@ -419,7 +423,7 @@ function Sudoku() {
         )}
       </div>
 
-      {/* 棋盤區 */}
+      {/* 右側遊戲區 */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -427,6 +431,8 @@ function Sudoku() {
         alignItems: 'center',
         padding: '20px',
         position: 'relative',
+        overflow: 'auto',
+        minHeight: isTablet ? '100vh' : 'auto',
       }}>
         {!isPlaying ? (
           <div style={{ textAlign: 'center' }}>
