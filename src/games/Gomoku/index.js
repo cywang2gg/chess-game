@@ -1,10 +1,39 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // 棋盤大小選項
 const BOARD_SIZES = {
   small: { size: 13, name: '13×13' },
   medium: { size: 15, name: '15×15' },
   large: { size: 19, name: '19×19' },
+};
+
+// 第四階段：Zobrist Hash 置換表
+// 預生成隨機值（每個位置每個顏色）
+const generateZobristTable = (maxSize) => {
+  const table = {};
+  for (let r = 0; r < maxSize; r++) {
+    for (let c = 0; c < maxSize; c++) {
+      table[`${r},${c},black`] = Math.floor(Math.random() * 2147483647);
+      table[`${r},${c},white`] = Math.floor(Math.random() * 2147483647);
+    }
+  }
+  return table;
+};
+
+const ZOBRIST_TABLE = generateZobristTable(19); // 最大棋盤 19x19
+
+// 計算棋盤 Hash 值
+const computeBoardHash = (boardState, size) => {
+  let hash = 0;
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const cell = boardState[r][c];
+      if (cell !== null) {
+        hash ^= ZOBRIST_TABLE[`${r},${c},${cell}`];
+      }
+    }
+  }
+  return hash;
 };
 
 // iPad 偵測
@@ -266,13 +295,201 @@ function Gomoku() {
     return candidates;
   }, [size]);
 
-  // AI 移動（高效能版本）
-  const makeAiMove = useCallback((currentBoard) => {
-    const candidates = getCandidates(currentBoard);
-    if (candidates.length === 0) return;
+  // ========================================
+  // 第二階段：Alpha-Beta 搜索 + 速度優化
+  // ========================================
+
+  // 第四階段：置換表（使用 useRef 避免每次重渲染）
+  const transpositionTableRef = useRef(new Map());
+
+  // Alpha-Beta 搜索主函數（帶置換表）
+  const alphaBeta = useCallback((boardState, depth, alpha, beta, isMaximizing, player) => {
+    // 第四階段：置換表查詢
+    const hash = computeBoardHash(boardState, size);
+    const transpositionTable = transpositionTableRef.current;
+    const cached = transpositionTable.get(hash);
     
-    let bestMove = null;
-    let bestScore = -Infinity;
+    if (cached && cached.depth >= depth) {
+      // 如果已有相同或更深度的結果，直接返回
+      if (cached.flag === 'exact') return cached.value;
+      if (cached.flag === 'lower' && cached.value >= beta) return cached.value;
+      if (cached.flag === 'upper' && cached.value <= alpha) return cached.value;
+    }
+
+    // 終止條件
+    if (depth === 0) {
+      return evaluateBoard(boardState, 'white');
+    }
+
+    const candidates = getCandidatesOptimized(boardState);
+    if (candidates.length === 0) {
+      return evaluateBoard(boardState, 'white');
+    }
+
+    // 優先排序候選位置（提升剪枝效率）
+    const scoredCandidates = candidates
+      .map(([r, c]) => ({ row: r, col: c, score: evaluatePosition(boardState, r, c, player) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12); // 第四階段：減少到 12 名（提升速度）
+
+    let bestValue = isMaximizing ? -Infinity : Infinity;
+    
+    if (isMaximizing) {
+      for (const { row, col } of scoredCandidates) {
+        const newBoard = boardState.map(r => [...r]);
+        newBoard[row][col] = player;
+        
+        // 檢查是否獲勝
+        if (checkWin(newBoard, row, col, player)) {
+          transpositionTable.set(hash, { depth, value: 1000000 + depth * 1000, flag: 'exact' });
+          return 1000000 + depth * 1000; // 越快贏越好
+        }
+        
+        const evalScore = alphaBeta(
+          newBoard, 
+          depth - 1, 
+          alpha, 
+          beta, 
+          false, 
+          player === 'white' ? 'black' : 'white'
+        );
+        bestValue = Math.max(bestValue, evalScore);
+        alpha = Math.max(alpha, evalScore);
+        if (beta <= alpha) break; // Beta 剪枝
+      }
+    } else {
+      for (const { row, col } of scoredCandidates) {
+        const newBoard = boardState.map(r => [...r]);
+        newBoard[row][col] = player;
+        
+        // 檢查是否獲勝
+        if (checkWin(newBoard, row, col, player)) {
+          transpositionTable.set(hash, { depth, value: -1000000 - depth * 1000, flag: 'exact' });
+          return -1000000 - depth * 1000; // 越快輸越糟
+        }
+        
+        const evalScore = alphaBeta(
+          newBoard, 
+          depth - 1, 
+          alpha, 
+          beta, 
+          true, 
+          player === 'white' ? 'black' : 'white'
+        );
+        bestValue = Math.min(bestValue, evalScore);
+        beta = Math.min(beta, evalScore);
+        if (beta <= alpha) break; // Alpha 剪枝
+      }
+    }
+
+    // 第四階段：存入置換表
+    let flag = 'exact';
+    if (bestValue <= alpha) flag = 'upper';
+    else if (bestValue >= beta) flag = 'lower';
+    
+    // 清理過大的置換表（避免記憶體爆炸）
+    if (transpositionTable.size > 50000) {
+      transpositionTable.clear();
+    }
+    
+    transpositionTable.set(hash, { depth, value: bestValue, flag });
+    
+    return bestValue;
+  }, [checkWin, getCandidates, evaluatePosition, size]);
+
+  // 整體棋盤評估（靜態評估函數）
+  const evaluateBoard = useCallback((boardState, aiPlayer) => {
+    let totalScore = 0;
+    const human = aiPlayer === 'white' ? 'black' : 'white';
+    
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (boardState[r][c] === null) {
+          // AI 的進攻分數
+          totalScore += evaluatePosition(boardState, r, c, aiPlayer) * 0.1;
+          // 人類的威脅分數（防守）
+          totalScore -= evaluatePosition(boardState, r, c, human) * 0.095;
+        }
+      }
+    }
+    
+    return totalScore;
+  }, [size, evaluatePosition]);
+
+  // 第三階段：優化候選位置生成（範圍限制）
+  const getCandidatesOptimized = useCallback((boardState) => {
+    // 找出所有已下棋子的範圍
+    let minR = size, maxR = 0, minC = size, maxC = 0;
+    let hasStones = false;
+    
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (boardState[r][c] !== null) {
+          hasStones = true;
+          minR = Math.min(minR, r);
+          maxR = Math.max(maxR, r);
+          minC = Math.min(minC, c);
+          maxC = Math.max(maxC, c);
+        }
+      }
+    }
+    
+    if (!hasStones) {
+      // 第一手下中心
+      const center = Math.floor(size / 2);
+      return [[center, center]];
+    }
+    
+    // 擴展範圍 (+2 步)
+    minR = Math.max(0, minR - 2);
+    maxR = Math.min(size - 1, maxR + 2);
+    minC = Math.max(0, minC - 2);
+    maxC = Math.min(size - 1, maxC + 2);
+    
+    const candidates = [];
+    const checked = new Set();
+    
+    // 只在範圍內搜索空位
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        if (boardState[r][c] === null) {
+          // 檢查周圍是否有棋子（避免孤立的空位）
+          let hasNeighbor = false;
+          for (let dr = -1; dr <= 1 && !hasNeighbor; dr++) {
+            for (let dc = -1; dc <= 1 && !hasNeighbor; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              const nr = r + dr, nc = c + dc;
+              if (nr >= 0 && nr < size && nc >= 0 && nc < size && boardState[nr][nc] !== null) {
+                hasNeighbor = true;
+              }
+            }
+          }
+          if (hasNeighbor) {
+            candidates.push([r, c]);
+          }
+        }
+      }
+    }
+    
+    return candidates;
+  }, [size]);
+
+  // AI 移動（Alpha-Beta 搜索版本）
+  const makeAiMove = useCallback((currentBoard) => {
+    const startTime = Date.now();
+    
+    // 根據難度設定搜索深度
+    let searchDepth = 2;
+    if (difficulty === 5) searchDepth = 3;
+    else if (difficulty === 4) searchDepth = 3;
+    else if (difficulty === 3) searchDepth = 2;
+    else searchDepth = 1;
+    
+    const candidates = getCandidatesOptimized(currentBoard);
+    if (candidates.length === 0) {
+      const center = Math.floor(size / 2);
+      candidates.push([center, center]);
+    }
     
     // 先檢查必殺棋（立即獲勝或必須防守）
     for (const [r, c] of candidates) {
@@ -280,81 +497,71 @@ function Gomoku() {
       const testBoard1 = currentBoard.map(row => [...row]);
       testBoard1[r][c] = 'white';
       if (checkWin(testBoard1, r, c, 'white')) {
-        bestMove = { row: r, col: c };
-        bestScore = 1000000;
-        break;
+        executeMove(currentBoard, r, c, startTime);
+        return;
       }
       
-      // 防守對方的活四或五連
+      // 防守對方的五連
       const testBoard2 = currentBoard.map(row => [...row]);
       testBoard2[r][c] = 'black';
       if (checkWin(testBoard2, r, c, 'black')) {
-        const score = 900000;
-        if (score > bestScore) {
-          bestScore = score;
-          bestMove = { row: r, col: c };
-        }
+        executeMove(currentBoard, r, c, startTime);
+        return;
       }
     }
     
-    // 如果沒有必殺棋，評估所有位置並根據難度選擇
-    if (!bestMove || bestScore < 900000) {
-      // 收集所有候選位置的評分
-      const scoredCandidates = [];
-      for (const [r, c] of candidates) {
-        const score = evaluatePosition(currentBoard, r, c, 'white');
-        scoredCandidates.push({ row: r, col: c, score });
-      }
+    // 評估所有候選位置
+    const scoredCandidates = [];
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'white';
       
-      // 排序：從高分到低分
-      scoredCandidates.sort((a, b) => b.score - a.score);
-      
-      // 根據難度選擇策略
-      if (difficulty === 5) {
-        // 專家級：100% 選最佳移動
-        bestMove = scoredCandidates[0];
-      } else if (difficulty === 4) {
-        // 困難：90% 最佳，10% 次佳
-        bestMove = Math.random() < 0.9 
-          ? scoredCandidates[0] 
-          : scoredCandidates[Math.min(1, scoredCandidates.length - 1)];
-      } else if (difficulty === 3) {
-        // 中等：70% 最佳，30% 前5名隨機
-        if (Math.random() < 0.7) {
-          bestMove = scoredCandidates[0];
-        } else {
-          const top5 = scoredCandidates.slice(0, Math.min(5, scoredCandidates.length));
-          bestMove = top5[Math.floor(Math.random() * top5.length)];
-        }
-      } else if (difficulty === 2) {
-        // 普通：50% 最佳，50% 前10名隨機
-        if (Math.random() < 0.5) {
-          bestMove = scoredCandidates[0];
-        } else {
-          const top10 = scoredCandidates.slice(0, Math.min(10, scoredCandidates.length));
-          bestMove = top10[Math.floor(Math.random() * top10.length)];
-        }
+      let score;
+      if (searchDepth > 1) {
+        // 使用 Alpha-Beta 搜索
+        score = alphaBeta(testBoard, searchDepth - 1, -Infinity, Infinity, false, 'black');
       } else {
-        // 簡單：30% 最佳，70% 完全隨機
-        if (Math.random() < 0.3) {
-          bestMove = scoredCandidates[0];
-        } else {
-          bestMove = scoredCandidates[Math.floor(Math.random() * scoredCandidates.length)];
-        }
+        // 深度 1：直接評估
+        score = evaluatePosition(currentBoard, r, c, 'white');
       }
+      
+      scoredCandidates.push({ row: r, col: c, score });
+    }
+    
+    // 排序
+    scoredCandidates.sort((a, b) => b.score - a.score);
+    
+    // 根據難度選擇
+    let bestMove;
+    if (difficulty === 5) {
+      bestMove = scoredCandidates[0];
+    } else if (difficulty === 4) {
+      bestMove = Math.random() < 0.85 ? scoredCandidates[0] : scoredCandidates[Math.min(1, scoredCandidates.length - 1)];
+    } else if (difficulty === 3) {
+      const top5 = scoredCandidates.slice(0, Math.min(5, scoredCandidates.length));
+      bestMove = Math.random() < 0.7 ? scoredCandidates[0] : top5[Math.floor(Math.random() * top5.length)];
+    } else if (difficulty === 2) {
+      const top10 = scoredCandidates.slice(0, Math.min(10, scoredCandidates.length));
+      bestMove = Math.random() < 0.5 ? scoredCandidates[0] : top10[Math.floor(Math.random() * top10.length)];
+    } else {
+      bestMove = Math.random() < 0.3 ? scoredCandidates[0] : scoredCandidates[Math.floor(Math.random() * scoredCandidates.length)];
     }
     
     if (!bestMove && candidates.length > 0) {
       bestMove = { row: candidates[0][0], col: candidates[0][1] };
     }
     
-    // 執行移動
+    executeMove(currentBoard, bestMove.row, bestMove.col, startTime);
+  }, [difficulty, size, checkWin, alphaBeta, evaluatePosition, getCandidatesOptimized]);
+
+  // 執行移動（輔助函數）
+  const executeMove = useCallback((currentBoard, row, col, startTime) => {
     const newBoard = currentBoard.map(r => [...r]);
-    newBoard[bestMove.row][bestMove.col] = 'white';
+    newBoard[row][col] = 'white';
     setBoard(newBoard);
-    setHistory(prev => [...prev, { row: bestMove.row, col: bestMove.col, player: 'white' }]);
+    setHistory(prev => [...prev, { row, col, player: 'white' }]);
     
-    const aiWinLine = checkWin(newBoard, bestMove.row, bestMove.col, 'white');
+    const aiWinLine = checkWin(newBoard, row, col, 'white');
     if (aiWinLine) {
       setWinner('white');
       setWinningLine(aiWinLine);
@@ -363,7 +570,11 @@ function Gomoku() {
     }
     
     setIsAiThinking(false);
-  }, [difficulty, getCandidates, evaluatePosition, checkWin]);
+    
+    // 記錄思考時間（除錯用）
+    const elapsed = Date.now() - startTime;
+    console.log(`AI 思考時間: ${elapsed}ms`);
+  }, [checkWin]);
 
   // 處理玩家點擊
   const handleCellClick = (row, col) => {
