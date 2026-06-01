@@ -1,20 +1,20 @@
 {
   "files": {
-    "main.js": "/chess-game/static/js/main.45ab64ad.js",
+    "main.js": "/chess-game/static/js/main.b172d56e.js",
     "static/js/744.b3dec7a3.chunk.js": "/chess-game/static/js/744.b3dec7a3.chunk.js",
-    "static/js/264.ab2c1984.chunk.js": "/chess-game/static/js/264.ab2c1984.chunk.js",
-    "static/js/144.371bfd1a.chunk.js": "/chess-game/static/js/144.371bfd1a.chunk.js",
-    "static/js/431.5ec443e4.chunk.js": "/chess-game/static/js/431.5ec443e4.chunk.js",
+    "static/js/264.38b5f0bb.chunk.js": "/chess-game/static/js/264.38b5f0bb.chunk.js",
+    "static/js/144.4ca4dfc4.chunk.js": "/chess-game/static/js/144.4ca4dfc4.chunk.js",
+    "static/js/431.e45f8eee.chunk.js": "/chess-game/static/js/431.e45f8eee.chunk.js",
     "static/js/665.24c45c33.chunk.js": "/chess-game/static/js/665.24c45c33.chunk.js",
     "index.html": "/chess-game/index.html",
-    "main.45ab64ad.js.map": "/chess-game/static/js/main.45ab64ad.js.map",
+    "main.b172d56e.js.map": "/chess-game/static/js/main.b172d56e.js.map",
     "744.b3dec7a3.chunk.js.map": "/chess-game/static/js/744.b3dec7a3.chunk.js.map",
-    "264.ab2c1984.chunk.js.map": "/chess-game/static/js/264.ab2c1984.chunk.js.map",
-    "144.371bfd1a.chunk.js.map": "/chess-game/static/js/144.371bfd1a.chunk.js.map",
-    "431.5ec443e4.chunk.js.map": "/chess-game/static/js/431.5ec443e4.chunk.js.map",
+    "264.38b5f0bb.chunk.js.map": "/chess-game/static/js/264.38b5f0bb.chunk.js.map",
+    "144.4ca4dfc4.chunk.js.map": "/chess-game/static/js/144.4ca4dfc4.chunk.js.map",
+    "431.e45f8eee.chunk.js.map": "/chess-game/static/js/431.e45f8eee.chunk.js.map",
     "665.24c45c33.chunk.js.map": "/chess-game/static/js/665.24c45c33.chunk.js.map"
   },
   "entrypoints": [
-    "static/js/main.45ab64ad.js"
+    "static/js/main.b172d56e.js"
   ]
 }
