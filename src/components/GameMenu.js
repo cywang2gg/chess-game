@@ -38,8 +38,8 @@ const GAMES = [
     name: '五子棋',
     nameEn: 'Gomoku',
     icon: '●',
-    description: '黑白五子連珠對戰，支援 AI 對手與難度調整',
-    features: ['AI 對戰', '難度 1-5', '棋盤大小調整', 'iPad 優化'],
+    description: '黑白五子連珠對戰，Alpha-Beta 搜索 AI，支援深度 3 搜索',
+    features: ['Alpha-Beta AI', '難度 1-5', '置換表優化', 'iPad 優化'],
     gradient: 'linear-gradient(135deg, #1e1e1e 0%, #3f3f3f 100%)',
     accentColor: '#8b5cf6'
   }
@@ -223,7 +223,13 @@ function GameMenu() {
         color: '#64748b',
         fontSize: isTablet ? '14px' : '11px'
       }}>
-        <div>Game Hub v0.1 • Made with React • Optimized for iPad</div>
+        <div>Game Hub v0.3 • Made with React • Optimized for iPad</div>
+        <div style={{ marginTop: '8px', color: '#22c55e', fontWeight: 'bold' }}>
+          📅 最後更新：2026-06-02
+        </div>
+        <div style={{ marginTop: '6px', color: '#94a3b8' }}>
+          五子棋 AI：Alpha-Beta 搜索（深度 3）+ 置換表優化
+        </div>
         <div style={{ marginTop: '8px', color: '#475569' }}>
           西洋棋 • 中國象棋 • 數獨 • 五子棋
         </div>
