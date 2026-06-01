@@ -26,6 +26,17 @@ const getDeviceType = () => {
   };
 };
 
+// 棋型評分表
+const SCORES = {
+  FIVE: 1000000,      // 五連
+  LIVE_FOUR: 100000,  // 活四
+  RUSH_FOUR: 10000,   // 衝四
+  LIVE_THREE: 10000,  // 活三
+  SLEEP_THREE: 1000,  // 眠三
+  LIVE_TWO: 500,      // 活二
+  SLEEP_TWO: 100,     // 眠二
+};
+
 function Gomoku() {
   const [deviceType, setDeviceType] = useState(getDeviceType());
   const [boardSize, setBoardSize] = useState('medium');
@@ -65,13 +76,13 @@ function Gomoku() {
     };
   }, []);
 
-  // 檢查勝利並返回連線位置
+  // 檢查勝利
   const checkWin = useCallback((boardState, row, col, player) => {
     const directions = [
-      [[0, 1], [0, -1]],   // 水平
-      [[1, 0], [-1, 0]],   // 垂直
-      [[1, 1], [-1, -1]], // 對角線
-      [[1, -1], [-1, 1]], // 反對角線
+      [[0, 1], [0, -1]],
+      [[1, 0], [-1, 0]],
+      [[1, 1], [-1, -1]],
+      [[1, -1], [-1, 1]],
     ];
 
     for (const [dir1, dir2] of directions) {
@@ -93,199 +104,268 @@ function Gomoku() {
         c += dir2[1];
       }
       
-      if (line.length >= 5) {
-        return line;
-      }
+      if (line.length >= 5) return line;
     }
-    
     return null;
   }, [size]);
 
-  // 評估位置價值（核心 AI 邏輯）
-  const evaluatePosition = useCallback((boardState, row, col, player) => {
-    if (boardState[row][col] !== null) return -1;
+  // 分析棋型（核心評分函數）
+  const analyzeLine = useCallback((boardState, row, col, dr, dc, player) => {
+    let count = 1;
+    let block = 0;
+    let empty = 0;
     
+    // 正向掃描
+    for (let i = 1; i <= 5; i++) {
+      const r = row + i * dr;
+      const c = col + i * dc;
+      if (r < 0 || r >= size || c < 0 || c >= size) {
+        block++;
+        break;
+      }
+      const cell = boardState[r][c];
+      if (cell === player) {
+        count++;
+      } else if (cell === null) {
+        empty++;
+        break;
+      } else {
+        block++;
+        break;
+      }
+    }
+    
+    // 反向掃描
+    for (let i = 1; i <= 5; i++) {
+      const r = row - i * dr;
+      const c = col - i * dc;
+      if (r < 0 || r >= size || c < 0 || c >= size) {
+        block++;
+        break;
+      }
+      const cell = boardState[r][c];
+      if (cell === player) {
+        count++;
+      } else if (cell === null) {
+        empty++;
+        break;
+      } else {
+        block++;
+        break;
+      }
+    }
+    
+    return { count, block, empty };
+  }, [size]);
+
+  // 評估單一位置的分數
+  const evaluatePoint = useCallback((boardState, row, col, player) => {
+    if (boardState[row][col] !== null) return 0;
+    
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+    let score = 0;
+    
+    for (const [dr, dc] of directions) {
+      const result = analyzeLine(boardState, row, col, dr, dc, player);
+      const { count, block } = result;
+      
+      if (count >= 5) {
+        score += SCORES.FIVE;
+      } else if (block === 0) { // 活棋
+        if (count === 4) score += SCORES.LIVE_FOUR;
+        else if (count === 3) score += SCORES.LIVE_THREE;
+        else if (count === 2) score += SCORES.LIVE_TWO;
+      } else if (block === 1) { // 眠棋
+        if (count === 4) score += SCORES.RUSH_FOUR;
+        else if (count === 3) score += SCORES.SLEEP_THREE;
+        else if (count === 2) score += SCORES.SLEEP_TWO;
+      }
+    }
+    
+    return score;
+  }, [analyzeLine]);
+
+  // 全局評估
+  const evaluateBoard = useCallback((boardState, player) => {
     let score = 0;
     const opponent = player === 'black' ? 'white' : 'black';
     
-    // 檢查四個方向
-    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
-    
-    for (const [dr, dc] of directions) {
-      // 計算連續棋子數
-      let myCount = 1;  // 包含自己（假設放上棋子）
-      let myOpenEnds = 0;
-      let oppCount = 0;
-      let oppOpenEnds = 0;
-      
-      // 向正方向計算
-      for (let i = 1; i <= 5; i++) {
-        const r = row + i * dr;
-        const c = col + i * dc;
-        if (r < 0 || r >= size || c < 0 || c >= size) break;
-        if (boardState[r][c] === player) myCount++;
-        else if (boardState[r][c] === null) { myOpenEnds++; break; }
-        else break;
-      }
-      
-      // 向負方向計算
-      for (let i = 1; i <= 5; i++) {
-        const r = row - i * dr;
-        const c = col - i * dc;
-        if (r < 0 || r >= size || c < 0 || c >= size) break;
-        if (boardState[r][c] === player) myCount++;
-        else if (boardState[r][c] === null) { myOpenEnds++; break; }
-        else break;
-      }
-      
-      // 評分：連成五子 = 必勝
-      if (myCount >= 5) score += 100000;
-      // 活四（4連 + 2空端）= 必勝
-      else if (myCount === 4 && myOpenEnds === 2) score += 10000;
-      // 活三（3連 + 2空端）
-      else if (myCount === 3 && myOpenEnds === 2) score += 1000;
-      // 死四（4連 + 1空端）
-      else if (myCount === 4 && myOpenEnds === 1) score += 500;
-      // 活二（2連 + 2空端）
-      else if (myCount === 2 && myOpenEnds === 2) score += 100;
-      // 死三
-      else if (myCount === 3 && myOpenEnds === 1) score += 50;
-      
-      // 對手的威脅（需要防守）
-      // 檢查對手在此方向的連子
-      let oppDirCount = 0;
-      let oppDirOpen = 0;
-      
-      for (let i = 1; i <= 5; i++) {
-        const r = row + i * dr;
-        const c = col + i * dc;
-        if (r < 0 || r >= size || c < 0 || c >= size) break;
-        if (boardState[r][c] === opponent) oppDirCount++;
-        else if (boardState[r][c] === null) { oppDirOpen++; break; }
-        else break;
-      }
-      
-      for (let i = 1; i <= 5; i++) {
-        const r = row - i * dr;
-        const c = col - i * dc;
-        if (r < 0 || r >= size || c < 0 || c >= size) break;
-        if (boardState[r][c] === opponent) oppDirCount++;
-        else if (boardState[r][c] === null) { oppDirOpen++; break; }
-        else break;
-      }
-      
-      // 防守評分
-      if (oppDirCount >= 5) score += 90000;  // 必須防守
-      else if (oppDirCount === 4 && oppDirOpen >= 1) score += 8000;  // 必須防守
-      else if (oppDirCount === 3 && oppDirOpen === 2) score += 700;  // 需要防守
-    }
-    
-    // 中心位置加分
-    const center = Math.floor(size / 2);
-    const distFromCenter = Math.abs(row - center) + Math.abs(col - center);
-    score += Math.max(0, 15 - distFromCenter);
-    
-    // 周圍有棋子加分
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const r = row + dr;
-        const c = col + dc;
-        if (r >= 0 && r < size && c >= 0 && c < size) {
-          if (boardState[r][c] !== null) score += 3;
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (boardState[r][c] === player) {
+          score += evaluatePoint(boardState, r, c, player);
+        } else if (boardState[r][c] === opponent) {
+          score -= evaluatePoint(boardState, r, c, opponent) * 1.1; // 防守略重
         }
       }
     }
     
     return score;
-  }, [size]);
+  }, [size, evaluatePoint]);
 
-  // AI 移動（根據難度）
-  const makeAiMove = useCallback((currentBoard) => {
-    // 收集所有空位並評分
-    const moves = [];
+  // 獲取候選位置（只考慮有棋子周圍的位置）
+  const getCandidates = useCallback((boardState) => {
+    const candidates = new Set();
+    const range = 2;
     
     for (let r = 0; r < size; r++) {
       for (let c = 0; c < size; c++) {
-        if (currentBoard[r][c] === null) {
-          const score = evaluatePosition(currentBoard, r, c, 'white');
-          if (score > 0) {
-            moves.push({ row: r, col: c, score });
-          }
-        }
-      }
-    }
-    
-    if (moves.length === 0) {
-      // 如果沒有好位置，選擇中心或附近
-      const center = Math.floor(size / 2);
-      if (currentBoard[center][center] === null) {
-        moves.push({ row: center, col: center, score: 1 });
-      } else {
-        // 找最近的空位
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            const r = center + dr;
-            const c = center + dc;
-            if (r >= 0 && r < size && c >= 0 && c < size && currentBoard[r][c] === null) {
-              moves.push({ row: r, col: c, score: 1 });
+        if (boardState[r][c] !== null) {
+          for (let dr = -range; dr <= range; dr++) {
+            for (let dc = -range; dc <= range; dc++) {
+              const nr = r + dr;
+              const nc = c + dc;
+              if (nr >= 0 && nr < size && nc >= 0 && nc < size && boardState[nr][nc] === null) {
+                candidates.add(`${nr},${nc}`);
+              }
             }
           }
         }
       }
     }
     
-    if (moves.length === 0) return;
-    
-    // 根據難度排序和選擇
-    moves.sort((a, b) => b.score - a.score);
-    
-    let selectedMove;
-    
-    switch (difficulty) {
-      case 1:  // 隨機選擇前 20%
-        const randomPool = moves.slice(0, Math.max(1, Math.floor(moves.length * 0.2)));
-        selectedMove = randomPool[Math.floor(Math.random() * randomPool.length)];
-        break;
-        
-      case 2:  // 隨機選擇前 10%
-        const pool2 = moves.slice(0, Math.max(1, Math.floor(moves.length * 0.1)));
-        selectedMove = pool2[Math.floor(Math.random() * pool2.length)];
-        break;
-        
-      case 3:  // 70% 最佳，30% 次佳
-        if (Math.random() < 0.7) {
-          selectedMove = moves[0];
-        } else {
-          const pool3 = moves.slice(0, Math.min(5, moves.length));
-          selectedMove = pool3[Math.floor(Math.random() * pool3.length)];
-        }
-        break;
-        
-      case 4:  // 90% 最佳，10% 次佳
-        if (Math.random() < 0.9 || moves.length === 1) {
-          selectedMove = moves[0];
-        } else {
-          selectedMove = moves[Math.floor(Math.random() * Math.min(3, moves.length))];
-        }
-        break;
-        
-      case 5:  // 總是最佳
-        selectedMove = moves[0];
-        break;
-        
-      default:
-        selectedMove = moves[0];
+    // 如果沒有候選（開局），返回中心點
+    if (candidates.size === 0) {
+      const center = Math.floor(size / 2);
+      return [[center, center]];
     }
     
-    // 執行 AI 移動
-    const newBoard = currentBoard.map(r => [...r]);
-    newBoard[selectedMove.row][selectedMove.col] = 'white';
-    setBoard(newBoard);
-    setHistory(prev => [...prev, { row: selectedMove.row, col: selectedMove.col, player: 'white' }]);
+    return Array.from(candidates).map(s => {
+      const [r, c] = s.split(',').map(Number);
+      return [r, c];
+    });
+  }, [size]);
+
+  // Minimax + Alpha-Beta
+  const minimax = useCallback((boardState, depth, alpha, beta, isMaximizing, player) => {
+    const aiColor = 'white';
+    const humanColor = 'black';
     
-    // 檢查 AI 是否勝利
-    const aiWinLine = checkWin(newBoard, selectedMove.row, selectedMove.col, 'white');
+    if (depth === 0) {
+      return evaluateBoard(boardState, aiColor);
+    }
+    
+    const candidates = getCandidates(boardState);
+    if (candidates.length === 0) {
+      return evaluateBoard(boardState, aiColor);
+    }
+    
+    // 先評分排序，提升剪枝效率
+    const scoredCandidates = candidates.map(([r, c]) => {
+      const newBoard = boardState.map(row => [...row]);
+      newBoard[r][c] = isMaximizing ? aiColor : humanColor;
+      return { r, c, score: evaluateBoard(newBoard, isMaximizing ? aiColor : humanColor) };
+    }).sort((a, b) => b.score - a.score).slice(0, 15); // 只取前 15 個
+    
+    if (isMaximizing) {
+      let maxEval = -Infinity;
+      for (const { r, c } of scoredCandidates) {
+        const newBoard = boardState.map(row => [...row]);
+        newBoard[r][c] = aiColor;
+        
+        // 檢查是否獲勝
+        if (checkWin(newBoard, r, c, aiColor)) {
+          return SCORES.FIVE;
+        }
+        
+        const evalScore = minimax(newBoard, depth - 1, alpha, beta, false, player);
+        maxEval = Math.max(maxEval, evalScore);
+        alpha = Math.max(alpha, evalScore);
+        if (beta <= alpha) break;
+      }
+      return maxEval;
+    } else {
+      let minEval = Infinity;
+      for (const { r, c } of scoredCandidates) {
+        const newBoard = boardState.map(row => [...row]);
+        newBoard[r][c] = humanColor;
+        
+        // 檢查是否獲勝
+        if (checkWin(newBoard, r, c, humanColor)) {
+          return -SCORES.FIVE;
+        }
+        
+        const evalScore = minimax(newBoard, depth - 1, alpha, beta, true, player);
+        minEval = Math.min(minEval, evalScore);
+        beta = Math.min(beta, evalScore);
+        if (beta <= alpha) break;
+      }
+      return minEval;
+    }
+  }, [getCandidates, evaluateBoard, checkWin]);
+
+  // AI 移動
+  const makeAiMove = useCallback((currentBoard) => {
+    const candidates = getCandidates(currentBoard);
+    if (candidates.length === 0) return;
+    
+    // 根據難度設定搜尋深度
+    const depthMap = { 1: 1, 2: 1, 3: 2, 4: 3, 5: 4 };
+    const searchDepth = depthMap[difficulty] || 2;
+    
+    let bestMove = null;
+    let bestScore = -Infinity;
+    
+    // 快速檢查必殺棋
+    for (const [r, c] of candidates) {
+      // 檢查 AI 是否能直接獲勝
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'white';
+      if (checkWin(testBoard, r, c, 'white')) {
+        bestMove = { row: r, col: c };
+        break;
+      }
+      
+      // 檢查是否需要防守對方的必殺棋
+      const testBoard2 = currentBoard.map(row => [...row]);
+      testBoard2[r][c] = 'black';
+      if (checkWin(testBoard2, r, c, 'black')) {
+        bestScore = SCORES.FIVE - 1;
+        bestMove = { row: r, col: c };
+      }
+    }
+    
+    // 如果沒有必殺棋，使用 Minimax
+    if (!bestMove || bestScore < SCORES.FIVE - 1) {
+      bestScore = -Infinity;
+      
+      for (const [r, c] of candidates) {
+        const newBoard = currentBoard.map(row => [...row]);
+        newBoard[r][c] = 'white';
+        
+        // 檢查是否獲勝
+        if (checkWin(newBoard, r, c, 'white')) {
+          bestMove = { row: r, col: c };
+          break;
+        }
+        
+        const score = minimax(newBoard, searchDepth - 1, -Infinity, Infinity, false, 'white');
+        
+        // 難度 1-3 加入隨機因素
+        let finalScore = score;
+        if (difficulty <= 3) {
+          const noise = (Math.random() - 0.5) * (4 - difficulty) * 5000;
+          finalScore += noise;
+        }
+        
+        if (finalScore > bestScore) {
+          bestScore = finalScore;
+          bestMove = { row: r, col: c };
+        }
+      }
+    }
+    
+    if (!bestMove) {
+      bestMove = { row: candidates[0][0], col: candidates[0][1] };
+    }
+    
+    // 執行移動
+    const newBoard = currentBoard.map(r => [...r]);
+    newBoard[bestMove.row][bestMove.col] = 'white';
+    setBoard(newBoard);
+    setHistory(prev => [...prev, { row: bestMove.row, col: bestMove.col, player: 'white' }]);
+    
+    const aiWinLine = checkWin(newBoard, bestMove.row, bestMove.col, 'white');
     if (aiWinLine) {
       setWinner('white');
       setWinningLine(aiWinLine);
@@ -294,19 +374,17 @@ function Gomoku() {
     }
     
     setIsAiThinking(false);
-  }, [size, difficulty, evaluatePosition, checkWin]);
+  }, [difficulty, getCandidates, minimax, checkWin]);
 
   // 處理玩家點擊
   const handleCellClick = (row, col) => {
     if (board[row][col] !== null || winner || isAiThinking) return;
     
-    // 玩家下棋
     const newBoard = board.map(r => [...r]);
     newBoard[row][col] = 'black';
     setBoard(newBoard);
     setHistory(prev => [...prev, { row, col, player: 'black' }]);
     
-    // 檢查玩家勝利
     const playerWinLine = checkWin(newBoard, row, col, 'black');
     if (playerWinLine) {
       setWinner('black');
@@ -314,7 +392,6 @@ function Gomoku() {
       return;
     }
     
-    // 換 AI
     setCurrentPlayer('white');
     setIsAiThinking(true);
     
@@ -372,7 +449,6 @@ function Gomoku() {
       color: '#f8fafc',
       fontFamily: 'system-ui, sans-serif',
     }}>
-      {/* 側邊欄 */}
       <div style={{
         width: isTablet ? (isLandscape ? '280px' : '100%') : '260px',
         backgroundColor: '#1e293b',
@@ -402,7 +478,6 @@ function Gomoku() {
           </div>
         </div>
 
-        {/* 棋盤大小 */}
         <div style={{ marginBottom: '12px' }}>
           <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>棋盤大小</div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -411,7 +486,6 @@ function Gomoku() {
                 key={key}
                 onClick={() => {
                   setBoardSize(key);
-                  // 需要重新初始化
                   setTimeout(() => initBoard(), 0);
                 }}
                 style={{
@@ -431,10 +505,9 @@ function Gomoku() {
           </div>
         </div>
 
-        {/* 難度 */}
         <div style={{ marginBottom: '12px' }}>
           <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-            難度（AI 防守/攻擊強度）
+            難度（Minimax 深度）
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             {[1, 2, 3, 4, 5].map(d => (
@@ -456,11 +529,11 @@ function Gomoku() {
             ))}
           </div>
           <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-            {difficulty === 1 ? '隨機選擇前 20%' : 
-             difficulty === 2 ? '隨機選擇前 10%' : 
-             difficulty === 3 ? '70% 最佳，30% 次佳' :
-             difficulty === 4 ? '90% 最佳' :
-             '總是最佳選擇'}
+            {difficulty === 1 ? '深度 1 + 高隨機' : 
+             difficulty === 2 ? '深度 1 + 中隨機' : 
+             difficulty === 3 ? '深度 2 + 低隨機' :
+             difficulty === 4 ? '深度 3（強）' :
+             '深度 4（最強）'}
           </div>
         </div>
 
@@ -483,7 +556,6 @@ function Gomoku() {
           新遊戲
         </button>
 
-        {/* 歷史記錄 */}
         <div style={{ maxHeight: '120px', overflowY: 'auto' }}>
           <div style={{ fontSize: '12px', color: '#94a3b8' }}>落子記錄</div>
           {history.slice(-6).map((h, i) => (
@@ -498,7 +570,6 @@ function Gomoku() {
         </div>
       </div>
 
-      {/* 棋盤 */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -524,7 +595,6 @@ function Gomoku() {
         </div>
       </div>
 
-      {/* 勝利彈窗 */}
       {winner && (
         <div style={{
           position: 'fixed',

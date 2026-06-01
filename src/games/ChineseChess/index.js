@@ -72,6 +72,13 @@ const POSITION_VALUES = {
   ],
 };
 
+// 將/帥的位置價值（保護加成）
+const KING_POSITION_VALUES = [
+  [0,0,0,4,6,4,0,0,0],
+  [0,0,0,8,12,8,0,0,0],
+  [0,0,0,8,12,8,0,0,0],
+];
+
 // 初始棋盤佈局
 const INITIAL_BOARD = [
   ['b_chariot', 'b_horse', 'b_elephant', 'b_advisor', 'b_king', 'b_advisor', 'b_elephant', 'b_horse', 'b_chariot'],
@@ -127,30 +134,6 @@ function ChineseChess() {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, []);
-
-  // 評估棋盤價值（紅方正分，黑方負分）
-  const evaluateBoard = useCallback((boardState) => {
-    let score = 0;
-    for (let r = 0; r < 10; r++) {
-      for (let c = 0; c < 9; c++) {
-        const piece = boardState[r][c];
-        if (piece) {
-          const pieceInfo = PIECES[piece];
-          let value = pieceInfo.value;
-          
-          // 加上位置價值
-          const type = piece.split('_')[1];
-          if (POSITION_VALUES[type]) {
-            const posRow = pieceInfo.color === 'red' ? r : 9 - r;
-            value += POSITION_VALUES[type][posRow][c];
-          }
-          
-          score += pieceInfo.color === 'red' ? value : -value;
-        }
-      }
-    }
-    return score;
   }, []);
 
   // 檢查移動是否合法
@@ -277,6 +260,99 @@ function ChineseChess() {
     return moves;
   }, [isValidMove]);
 
+  // 尋找將的位置
+  const findKing = useCallback((color, boardState) => {
+    const kingPiece = color === 'red' ? 'r_king' : 'b_king';
+    for (let r = 0; r < 10; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (boardState[r][c] === kingPiece) {
+          return { row: r, col: c };
+        }
+      }
+    }
+    return null;
+  }, []);
+
+  // 檢查某位置是否被攻擊
+  const isSquareAttacked = useCallback((row, col, byColor, boardState) => {
+    const moves = getAllMoves(byColor, boardState);
+    return moves.some(m => m.to.row === row && m.to.col === col);
+  }, [getAllMoves]);
+
+  // 檢查將是否被將軍
+  const isKingInCheck = useCallback((color, boardState) => {
+    const kingPos = findKing(color, boardState);
+    if (!kingPos) return false;
+    const opponent = color === 'red' ? 'black' : 'red';
+    return isSquareAttacked(kingPos.row, kingPos.col, opponent, boardState);
+  }, [findKing, isSquareAttacked]);
+
+  // 評估棋盤價值（紅方正分，黑方負分）
+  const evaluateBoard = useCallback((boardState) => {
+    let score = 0;
+    
+    for (let r = 0; r < 10; r++) {
+      for (let c = 0; c < 9; c++) {
+        const piece = boardState[r][c];
+        if (piece) {
+          const pieceInfo = PIECES[piece];
+          let value = pieceInfo.value;
+          
+          const type = piece.split('_')[1];
+          if (POSITION_VALUES[type]) {
+            const posRow = pieceInfo.color === 'red' ? r : 9 - r;
+            value += POSITION_VALUES[type][posRow][c];
+          }
+          
+          score += pieceInfo.color === 'red' ? value : -value;
+        }
+      }
+    }
+    
+    // 將軍威脅評估
+    const blackKingPos = findKing('black', boardState);
+    const redKingPos = findKing('red', boardState);
+    
+    // 黑將被威脅：紅方有優勢
+    if (blackKingPos && isSquareAttacked(blackKingPos.row, blackKingPos.col, 'red', boardState)) {
+      score += 500; // 將軍獎勵
+    }
+    
+    // 紅帥被威脅：黑方有優勢
+    if (redKingPos && isSquareAttacked(redKingPos.row, redKingPos.col, 'black', boardState)) {
+      score -= 500;
+    }
+    
+    // 保護將的加成（周圍有防守棋子）
+    if (blackKingPos) {
+      const palaceRowStart = 0;
+      const palaceRowEnd = 2;
+      const palaceColStart = 3;
+      const palaceColEnd = 5;
+      
+      // 統計九宮內的防守棋子
+      for (let r = palaceRowStart; r <= palaceRowEnd; r++) {
+        for (let c = palaceColStart; c <= palaceColEnd; c++) {
+          const piece = boardState[r][c];
+          if (piece && PIECES[piece]?.color === 'black') {
+            const type = piece.split('_')[1];
+            if (type === 'advisor' || type === 'elephant') {
+              score -= 30; // 黑方防守棋子加分
+            }
+          }
+        }
+      }
+      
+      // 將在中心位置更好
+      const kingCol = blackKingPos.col;
+      if (kingCol >= 3 && kingCol <= 5) {
+        score -= 20;
+      }
+    }
+    
+    return score;
+  }, [findKing, isSquareAttacked]);
+
   // Minimax + Alpha-Beta Pruning
   const minimax = useCallback((boardState, depth, alpha, beta, isMaximizing) => {
     if (depth === 0) {
@@ -290,12 +366,24 @@ function ChineseChess() {
       return isMaximizing ? -99999 : 99999;
     }
     
+    // 檢查是否吃掉對方的將
+    for (const move of moves) {
+      if (move.captured && move.captured.includes('king')) {
+        return isMaximizing ? 99999 : -99999;
+      }
+    }
+    
     if (isMaximizing) {
       let maxEval = -Infinity;
       for (const move of moves) {
         const newBoard = boardState.map(r => [...r]);
         newBoard[move.to.row][move.to.col] = move.piece;
         newBoard[move.from.row][move.from.col] = null;
+        
+        // 移動後黑將被吃 → 極大懲罰
+        if (!findKing('black', newBoard)) {
+          continue;
+        }
         
         const evalScore = minimax(newBoard, depth - 1, alpha, beta, false);
         maxEval = Math.max(maxEval, evalScore);
@@ -317,7 +405,7 @@ function ChineseChess() {
       }
       return minEval;
     }
-  }, [evaluateBoard, getAllMoves]);
+  }, [evaluateBoard, getAllMoves, findKing]);
 
   // AI 移動（使用 Minimax）
   const makeAiMove = useCallback((currentBoard) => {
@@ -329,11 +417,8 @@ function ChineseChess() {
     }
     
     // 根據難度設定搜尋深度
-    const depthMap = { 1: 1, 2: 2, 3: 2, 4: 3, 5: 3 };
-    const searchDepth = depthMap[difficulty] || 2;
-    
-    // 隨機因素（難度越低，隨機性越高）
-    const randomFactor = Math.max(0, 0.4 - difficulty * 0.08);
+    const depthMap = { 1: 2, 2: 3, 3: 3, 4: 4, 5: 4 };
+    const searchDepth = depthMap[difficulty] || 3;
     
     let scoredMoves = [];
     for (const move of moves) {
@@ -341,15 +426,50 @@ function ChineseChess() {
       newBoard[move.to.row][move.to.col] = move.piece;
       newBoard[move.from.row][move.from.col] = null;
       
-      // 使用 minimax 評估
-      let score = minimax(newBoard, searchDepth - 1, -Infinity, Infinity, false);
+      // 移動後黑將被吃 → 跳過此移動
+      if (!findKing('black', newBoard)) {
+        continue;
+      }
       
-      // 加入隨機因素
+      // 移動後黑將被將軍 → 大幅扣分
+      let checkPenalty = 0;
+      if (isKingInCheck('black', newBoard)) {
+        checkPenalty = -2000;
+      }
+      
+      let score = minimax(newBoard, searchDepth - 1, -Infinity, Infinity, false);
+      score += checkPenalty;
+      
+      // 保護將的移動加分
+      const blackKingPos = findKing('black', currentBoard);
+      if (blackKingPos) {
+        // 如果移動後將更安全
+        const wasAttacked = isSquareAttacked(blackKingPos.row, blackKingPos.col, 'red', currentBoard);
+        const newKingPos = move.piece === 'b_king' ? move.to : blackKingPos;
+        const isStillAttacked = isSquareAttacked(newKingPos.row, newKingPos.col, 'red', newBoard);
+        
+        if (wasAttacked && !isStillAttacked) {
+          score += 800; // 解除將軍獎勵
+        }
+        
+        // 堵塞攻擊路線
+        if (move.piece !== 'b_king' && wasAttacked) {
+          score += 500;
+        }
+      }
+      
+      // 難度越低，隨機性越高
+      const randomFactor = Math.max(0, 0.3 - difficulty * 0.06);
       if (randomFactor > 0) {
-        score += (Math.random() - 0.5) * randomFactor * 100;
+        score += (Math.random() - 0.5) * randomFactor * 200;
       }
       
       scoredMoves.push({ ...move, score });
+    }
+    
+    if (scoredMoves.length === 0) {
+      setIsAiThinking(false);
+      return;
     }
     
     // 排序並選擇最佳移動
@@ -358,7 +478,6 @@ function ChineseChess() {
     // 根據難度決定是否選擇次佳移動
     let selectedMove;
     if (difficulty <= 2 && scoredMoves.length > 1 && Math.random() < 0.3) {
-      // 低難度有 30% 機會選擇次佳移動
       selectedMove = scoredMoves[Math.floor(Math.random() * Math.min(3, scoredMoves.length))];
     } else {
       selectedMove = scoredMoves[0];
@@ -379,7 +498,7 @@ function ChineseChess() {
     
     setCurrentPlayer('red');
     setIsAiThinking(false);
-  }, [difficulty, getAllMoves, minimax]);
+  }, [difficulty, getAllMoves, minimax, findKing, isKingInCheck, isSquareAttacked]);
 
   // 處理棋子點擊
   const handleCellClick = (row, col) => {
@@ -498,17 +617,22 @@ function ChineseChess() {
         
         <div style={{ backgroundColor: '#334155', padding: '12px', borderRadius: '8px', marginBottom: '12px' }}>
           <div style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '8px' }}>
-            Current: {currentPlayer === 'red' ? '紅方 (你)' : '黑方 (AI)'}
+            {gameStatus !== 'playing' 
+              ? `🏆 ${gameStatus === 'red_win' ? '紅方獲勝！' : '黑方獲勝'}`
+              : (isAiThinking 
+                ? '🤔 AI 思考中...'
+                : `⏳ ${currentPlayer === 'red' ? '紅方 (你)' : '黑方 (AI)'} 回合`)
+            }
           </div>
-          <div style={{ fontSize: '12px', color: isAiThinking ? '#f59e0b' : '#10b981' }}>
-            {isAiThinking ? 'AI 思考中...' : '等待你的回合'}
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            步數：{history.length}
           </div>
         </div>
 
-        {/* 難度選擇 */}
+        {/* 難度 */}
         <div style={{ marginBottom: '12px' }}>
           <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-            難度 (搜尋深度)
+            AI 難度
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             {[1, 2, 3, 4, 5].map(d => (
@@ -530,7 +654,11 @@ function ChineseChess() {
             ))}
           </div>
           <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-            {difficulty <= 2 ? '深度 1-2，有隨機因素' : `深度 ${difficulty <= 3 ? 2 : 3}`}
+            {difficulty === 1 ? '簡單（深度 2）' : 
+             difficulty === 2 ? '普通（深度 3）' : 
+             difficulty === 3 ? '中等（深度 3）' :
+             difficulty === 4 ? '困難（深度 4）' :
+             '大師（深度 4）'}
           </div>
         </div>
 
@@ -543,19 +671,25 @@ function ChineseChess() {
             color: '#fff',
             border: 'none',
             borderRadius: '8px',
-            fontSize: isTablet ? '16px' : '14px',
+            fontSize: isTablet ? '18px' : '16px',
+            fontWeight: 'bold',
             cursor: 'pointer',
-            minHeight: isTablet ? '44px' : 'auto',
+            marginBottom: '12px',
+            minHeight: isTablet ? '56px' : 'auto',
           }}
         >
           新遊戲
         </button>
 
         {/* 歷史記錄 */}
-        <div style={{ marginTop: '12px', maxHeight: '150px', overflowY: 'auto' }}>
+        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
           <div style={{ fontSize: '12px', color: '#94a3b8' }}>移動記錄</div>
-          {history.slice(-10).map((h, i) => (
-            <div key={i} style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px' }}>
+          {history.slice(-8).map((h, i) => (
+            <div key={i} style={{ 
+              fontSize: '11px', 
+              color: PIECES[h.piece]?.color === 'red' ? '#fca5a5' : '#94a3b8',
+              marginTop: '4px',
+            }}>
               {PIECES[h.piece]?.name} ({h.from.row},{h.from.col}) → ({h.to.row},{h.to.col})
             </div>
           ))}
@@ -569,6 +703,7 @@ function ChineseChess() {
         justifyContent: 'center',
         alignItems: 'center',
         padding: '20px',
+        overflow: 'auto',
       }}>
         <div style={{
           backgroundColor: '#f0d9b5',
@@ -579,17 +714,26 @@ function ChineseChess() {
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(9, 1fr)',
-            gridTemplateRows: 'repeat(10, 1fr)',
-            gap: '0',
           }}>
             {board.map((row, ri) => 
               row.map((_, ci) => renderCell(ri, ci))
             )}
           </div>
+          
+          {/* 楚河漢界 */}
+          <div style={{
+            textAlign: 'center',
+            padding: '10px',
+            fontSize: isTablet ? '18px' : '14px',
+            color: '#8b4513',
+            fontWeight: 'bold',
+          }}>
+            楚河 — 漢界
+          </div>
         </div>
       </div>
 
-      {/* 結束彈窗 */}
+      {/* 遊戲結束彈窗 */}
       {gameStatus !== 'playing' && (
         <div style={{
           position: 'fixed',
@@ -607,9 +751,15 @@ function ChineseChess() {
             textAlign: 'center',
             border: '2px solid #ef4444',
           }}>
-            <h2 style={{ fontSize: '28px', color: '#fff', marginBottom: '20px' }}>
-              {gameStatus === 'red_win' ? '🎉 紅方勝利！' : '黑方勝利'}
+            <div style={{ fontSize: '48px', marginBottom: '20px' }}>
+              {gameStatus === 'red_win' ? '🏆' : '⚔️'}
+            </div>
+            <h2 style={{ fontSize: '28px', color: '#fff', marginBottom: '10px' }}>
+              {gameStatus === 'red_win' ? '🎉 紅方獲勝！' : '黑方獲勝'}
             </h2>
+            <p style={{ fontSize: '16px', color: '#94a3b8', marginBottom: '20px' }}>
+              總步數：{history.length}
+            </p>
             <button
               onClick={newGame}
               style={{

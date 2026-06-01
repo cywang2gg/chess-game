@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // 數獨難度設定
 const DIFFICULTY_LEVELS = {
@@ -31,15 +31,12 @@ const generateCompleteSudoku = () => {
   const board = Array(9).fill(null).map(() => Array(9).fill(0));
   
   const isValid = (board, row, col, num) => {
-    // 檢查行
     for (let x = 0; x < 9; x++) {
       if (board[row][x] === num) return false;
     }
-    // 檢查列
     for (let x = 0; x < 9; x++) {
       if (board[x][col] === num) return false;
     }
-    // 檢查 3x3 宮格
     const startRow = row - row % 3;
     const startCol = col - col % 3;
     for (let i = 0; i < 3; i++) {
@@ -104,6 +101,9 @@ function Sudoku() {
   const [timer, setTimer] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showNumberPicker, setShowNumberPicker] = useState(false);
+  const [pickerPosition, setPickerPosition] = useState({ x: 0, y: 0 });
+  const boardRef = useRef(null);
 
   const isTablet = deviceType.isTablet;
 
@@ -119,6 +119,7 @@ function Sudoku() {
     setTimer(0);
     setIsComplete(false);
     setIsPlaying(true);
+    setShowNumberPicker(false);
   }, [difficulty]);
 
   // 計時器
@@ -143,10 +144,41 @@ function Sudoku() {
     }
   }, [userBoard, solution, isPlaying, isComplete]);
 
+  // 點擊外部關閉數字選擇器
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (showNumberPicker && !e.target.closest('.number-picker') && !e.target.closest('.sudoku-cell')) {
+        setShowNumberPicker(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showNumberPicker]);
+
   // 處理格子點擊
-  const handleCellClick = (row, col) => {
+  const handleCellClick = (row, col, event) => {
     if (puzzle[row][col] !== 0) return; // 原始數字不能修改
+    
+    event.stopPropagation();
+    
+    // 計算彈出位置
+    const rect = event.currentTarget.getBoundingClientRect();
+    const cellSize = isTablet ? 48 : 36;
+    const pickerSize = isTablet ? 180 : 150;
+    
+    let x = rect.left + rect.width / 2 - pickerSize / 2;
+    let y = rect.bottom + 8;
+    
+    // 邊界檢查
+    if (x < 10) x = 10;
+    if (x + pickerSize > window.innerWidth - 10) x = window.innerWidth - pickerSize - 10;
+    if (y + pickerSize > window.innerHeight - 10) {
+      y = rect.top - pickerSize - 8;
+    }
+    
     setSelectedCell({ row, col });
+    setPickerPosition({ x, y });
+    setShowNumberPicker(true);
   };
 
   // 輸入數字
@@ -156,8 +188,8 @@ function Sudoku() {
     const newUserBoard = userBoard.map(row => [...row]);
     newUserBoard[selectedCell.row][selectedCell.col] = num;
     setUserBoard(newUserBoard);
+    setShowNumberPicker(false);
     
-    // 檢查是否正確
     const key = `${selectedCell.row}-${selectedCell.col}`;
     const newErrors = new Set(errors);
     
@@ -177,6 +209,7 @@ function Sudoku() {
     const newUserBoard = userBoard.map(row => [...row]);
     newUserBoard[selectedCell.row][selectedCell.col] = 0;
     setUserBoard(newUserBoard);
+    setShowNumberPicker(false);
     
     const key = `${selectedCell.row}-${selectedCell.col}`;
     const newErrors = new Set(errors);
@@ -186,11 +219,21 @@ function Sudoku() {
 
   // 提示
   const handleHint = () => {
-    if (hints <= 0 || !selectedCell) return;
+    if (hints <= 0) return;
     
-    const { row, col } = selectedCell;
-    if (puzzle[row][col] !== 0) return;
+    // 找一個空格或錯誤格子
+    let targetCell = null;
+    for (let r = 0; r < 9 && !targetCell; r++) {
+      for (let c = 0; c < 9 && !targetCell; c++) {
+        if (puzzle[r][c] === 0 && userBoard[r][c] !== solution[r][c]) {
+          targetCell = { row: r, col: c };
+        }
+      }
+    }
     
+    if (!targetCell) return;
+    
+    const { row, col } = targetCell;
     const newUserBoard = userBoard.map(r => [...r]);
     newUserBoard[row][col] = solution[row][col];
     setUserBoard(newUserBoard);
@@ -216,14 +259,14 @@ function Sudoku() {
     const isSelected = selectedCell?.row === row && selectedCell?.col === col;
     const isError = errors.has(`${row}-${col}`);
     
-    // 3x3 宮格邊框
     const borderRight = (col === 2 || col === 5) ? '2px solid #1e293b' : '1px solid #cbd5e1';
     const borderBottom = (row === 2 || row === 5) ? '2px solid #1e293b' : '1px solid #cbd5e1';
     
     return (
       <div
         key={`${row}-${col}`}
-        onClick={() => handleCellClick(row, col)}
+        className="sudoku-cell"
+        onClick={(e) => handleCellClick(row, col, e)}
         style={{
           width: isTablet ? '48px' : '36px',
           height: isTablet ? '48px' : '36px',
@@ -240,6 +283,7 @@ function Sudoku() {
           color: isError ? '#ef4444' : (isOriginal ? '#1e293b' : '#3b82f6'),
           cursor: isOriginal ? 'default' : 'pointer',
           transition: 'background-color 0.2s',
+          userSelect: 'none',
         }}
       >
         {value || ''}
@@ -353,6 +397,7 @@ function Sudoku() {
                 borderRadius: '6px',
                 cursor: hints > 0 ? 'pointer' : 'not-allowed',
                 fontSize: '14px',
+                minHeight: '36px',
               }}
             >
               使用
@@ -360,48 +405,16 @@ function Sudoku() {
           </div>
         )}
 
-        {/* 數字鍵盤 */}
+        {/* 操作提示 */}
         {isPlaying && (
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '8px',
+            backgroundColor: '#334155',
+            padding: '12px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            color: '#94a3b8',
           }}>
-            {[1,2,3,4,5,6,7,8,9].map(num => (
-              <button
-                key={num}
-                onClick={() => handleNumberInput(num)}
-                style={{
-                  padding: isTablet ? '16px' : '12px',
-                  backgroundColor: '#3b82f6',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: isTablet ? '24px' : '20px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  minHeight: isTablet ? '56px' : '44px',
-                }}
-              >
-                {num}
-              </button>
-            ))}
-            <button
-              onClick={handleClear}
-              style={{
-                gridColumn: 'span 3',
-                padding: isTablet ? '14px' : '10px',
-                backgroundColor: '#ef4444',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: isTablet ? '18px' : '16px',
-                cursor: 'pointer',
-                minHeight: isTablet ? '44px' : 'auto',
-              }}
-            >
-              清除
-            </button>
+            💡 點擊空格後會跳出數字選擇器
           </div>
         )}
       </div>
@@ -413,6 +426,7 @@ function Sudoku() {
         justifyContent: 'center',
         alignItems: 'center',
         padding: '20px',
+        position: 'relative',
       }}>
         {!isPlaying ? (
           <div style={{ textAlign: 'center' }}>
@@ -437,12 +451,15 @@ function Sudoku() {
             </button>
           </div>
         ) : (
-          <div style={{
-            backgroundColor: '#fff',
-            padding: '10px',
-            borderRadius: '12px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-          }}>
+          <div 
+            ref={boardRef}
+            style={{
+              backgroundColor: '#fff',
+              padding: '10px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+            }}
+          >
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(9, 1fr)',
@@ -451,6 +468,69 @@ function Sudoku() {
               {userBoard.map((row, ri) => 
                 row.map((_, ci) => renderCell(ri, ci))
               )}
+            </div>
+          </div>
+        )}
+
+        {/* 數字選擇器彈窗 */}
+        {showNumberPicker && selectedCell && (
+          <div 
+            className="number-picker"
+            style={{
+              position: 'fixed',
+              left: pickerPosition.x,
+              top: pickerPosition.y,
+              backgroundColor: '#1e293b',
+              borderRadius: '12px',
+              padding: isTablet ? '12px' : '10px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              border: '2px solid #3b82f6',
+              zIndex: 1000,
+            }}
+          >
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: isTablet ? '8px' : '6px',
+            }}>
+              {[1,2,3,4,5,6,7,8,9].map(num => (
+                <button
+                  key={num}
+                  onClick={() => handleNumberInput(num)}
+                  style={{
+                    width: isTablet ? '50px' : '40px',
+                    height: isTablet ? '50px' : '40px',
+                    backgroundColor: '#3b82f6',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: isTablet ? '24px' : '20px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  {num}
+                </button>
+              ))}
+              <button
+                onClick={handleClear}
+                style={{
+                  gridColumn: 'span 3',
+                  padding: isTablet ? '10px' : '8px',
+                  backgroundColor: '#ef4444',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: isTablet ? '16px' : '14px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                }}
+              >
+                ✕ 清除
+              </button>
             </div>
           </div>
         )}
