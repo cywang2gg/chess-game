@@ -229,7 +229,7 @@ function Gomoku() {
       // 沖4: 60分
       else if (myCount === 4 && myLine.openEnds === 1) score += 60000;
       // 活3: 50分（關鍵！必須阻擋）
-      else if (myCount === 3 && myLine.openEnds === 2) score += 50000;
+      else if (myCount === 3 && myLine.openEnds === 2) score += 80000;  // 大幅提升！
       // 死3: 30分
       else if (myCount === 3 && myLine.openEnds === 1) score += 30000;
       // 活2: 20分
@@ -246,7 +246,7 @@ function Gomoku() {
       // 沖4: 60分 × 0.95
       else if (oppCount === 4 && oppLine.openEnds === 1) score += 57000;
       // 活3: 50分 × 0.95（關鍵！必須阻擋）
-      else if (oppCount === 3 && oppLine.openEnds === 2) score += 47500;
+      else if (oppCount === 3 && oppLine.openEnds === 2) score += 90000;  // 防守優先！
       // 死3: 30分 × 0.95
       else if (oppCount === 3 && oppLine.openEnds === 1) score += 28500;
       // 活2: 20分 × 0.95

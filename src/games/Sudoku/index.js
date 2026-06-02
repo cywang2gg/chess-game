@@ -299,7 +299,7 @@ function Sudoku() {
       flexDirection: isTablet ? 'row' : 'column',
       color: '#f8fafc',
       fontFamily: 'system-ui, sans-serif',
-      overflow: 'hidden',
+      overflow: 'auto',  // 允許滾動
     }}>
       {/* 左側功能列 */}
       <div style={{
