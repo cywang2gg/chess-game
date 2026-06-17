@@ -113,13 +113,13 @@ function GameMenu() {
             fontWeight: 'bold',
             marginBottom: '4px'
           }}>
-            📅 最後更新：2026-06-02 • v0.3
+            📅 最後更新：2026-06-17 • v0.4
           </div>
           <div style={{
             fontSize: isTablet ? '14px' : '11px',
             color: '#94a3b8'
           }}>
-            五子棋 AI：Alpha-Beta 搜索（深度 3）+ 置換表優化
+            五子棋 AI：VCF 必勝算法 + 預搜索威脅檢測 + 深度 4
           </div>
         </div>
       </header>
@@ -247,12 +247,12 @@ function GameMenu() {
         color: '#64748b',
         fontSize: isTablet ? '14px' : '11px'
       }}>
-        <div>Game Hub v0.3 • Made with React • Optimized for iPad</div>
+        <div>Game Hub v0.4 • Made with React • Optimized for iPad</div>
         <div style={{ marginTop: '8px', color: '#22c55e', fontWeight: 'bold' }}>
           📅 最後更新：2026-06-02
         </div>
         <div style={{ marginTop: '6px', color: '#94a3b8' }}>
-          五子棋 AI：Alpha-Beta 搜索（深度 3）+ 置換表優化
+          五子棋 AI：VCF 必勝算法 + 預搜索威脅檢測 + 深度 4
         </div>
         <div style={{ marginTop: '8px', color: '#475569' }}>
           西洋棋 • 中國象棋 • 數獨 • 五子棋
