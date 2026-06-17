@@ -127,141 +127,211 @@ function Gomoku() {
     return null;
   }, [size]);
 
-  // 計算某方向的連子數和空位
-  const countLine = useCallback((boardState, row, col, dr, dc, player) => {
+  // ========================================
+  // 優化版：棋型檢測函數
+  // ========================================
+
+  // 評分矩陣（基於專業五子棋引擎）
+  const PATTERN_SCORES = {
+    FIVE: 10000000,           // 連五 - 立即勝利
+    LIVE_FOUR: 1000000,       // 活四 - 必勝
+    RUSH_FOUR: 100000,        // 沖四 - 必須防守
+    LIVE_THREE: 50000,        // 活三 - 關鍵威脅
+    DEAD_THREE: 10000,        // 眠三
+    LIVE_TWO: 5000,           // 活二
+    DEAD_TWO: 1000,           // 眠二
+    LIVE_ONE: 500,            // 活一
+    // 必勝組合
+    DOUBLE_LIVE_THREE: 800000,  // 雙活三
+    LIVE_FOUR_RUSH_FOUR: 900000, // 活四+沖四
+    LIVE_THREE_RUSH_FOUR: 900000, // 活三+沖四
+    DOUBLE_RUSH_FOUR: 200000,   // 雙沖四
+  };
+
+  // 完整棋型分析（修正版）
+  // 返回：count（不含中心的連子數）、openEnds（開口端數）、pattern（棋型名稱）
+  const analyzePattern = useCallback((boardState, row, col, dr, dc, player) => {
     let count = 0;
     let openEnds = 0;
-    
-    // 正向
-    for (let i = 1; i <= 4; i++) {
+    let forwardBlocked = false;
+    let backwardBlocked = false;
+
+    // 正向搜索
+    for (let i = 1; i <= 5; i++) {
       const r = row + i * dr;
       const c = col + i * dc;
-      if (r < 0 || r >= size || c < 0 || c >= size) break;
-      if (boardState[r][c] === player) count++;
-      else if (boardState[r][c] === null) { openEnds++; break; }
-      else break;
+      if (r < 0 || r >= size || c < 0 || c >= size) {
+        forwardBlocked = true;
+        break;
+      }
+      if (boardState[r][c] === player) {
+        count++;
+      } else if (boardState[r][c] === null) {
+        openEnds++;
+        break;
+      } else {
+        forwardBlocked = true;
+        break;
+      }
     }
-    
-    // 反向
-    for (let i = 1; i <= 4; i++) {
+
+    // 反向搜索
+    for (let i = 1; i <= 5; i++) {
       const r = row - i * dr;
       const c = col - i * dc;
-      if (r < 0 || r >= size || c < 0 || c >= size) break;
-      if (boardState[r][c] === player) count++;
-      else if (boardState[r][c] === null) { openEnds++; break; }
-      else break;
+      if (r < 0 || r >= size || c < 0 || c >= size) {
+        backwardBlocked = true;
+        break;
+      }
+      if (boardState[r][c] === player) {
+        count++;
+      } else if (boardState[r][c] === null) {
+        openEnds++;
+        break;
+      } else {
+        backwardBlocked = true;
+        break;
+      }
     }
-    
-    return { count, openEnds };
+
+    // 計算總連子數（包含中心位置）
+    const totalStones = count + 1;
+
+    return { count, openEnds, totalStones, forwardBlocked, backwardBlocked };
   }, [size]);
 
-  // 檢測雙威脅（雙三、雙四、三四組合）
+  // 舊版 countLine 保留以兼容（但標記為棄用）
+  const countLine = useCallback((boardState, row, col, dr, dc, player) => {
+    return analyzePattern(boardState, row, col, dr, dc, player);
+  }, [analyzePattern]);
+
+  // ========================================
+  // 優化版：雙威脅檢測（正確版）
+  // ========================================
   const checkDoubleThreats = useCallback((boardState, row, col, player) => {
     let liveThrees = 0;
     let rushFours = 0;
     let liveFours = 0;
-    
+
     const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
-    
+
     for (const [dr, dc] of directions) {
-      const line = countLine(boardState, row, col, dr, dc, player);
-      
-      // 活三：3連 + 2開口
-      if (line.count >= 2 && line.openEnds === 2) {
-        liveThrees++;
-      }
-      
-      // 活四：4連 + 至少1開口
-      if (line.count >= 3 && line.openEnds >= 1) {
+      const pattern = analyzePattern(boardState, row, col, dr, dc, player);
+      const total = pattern.totalStones;
+
+      // 活四：4連 + 2開口（必勝！）
+      if (total >= 4 && pattern.openEnds === 2) {
         liveFours++;
       }
-      
-      // 沖四：4連 + 1開口
-      if (line.count >= 3 && line.openEnds === 1) {
+      // 沖四：4連 + 1開口（必須防守）
+      else if (total >= 4 && pattern.openEnds === 1) {
         rushFours++;
       }
+      // 活三：3連 + 2開口（關鍵威脅）
+      else if (total >= 3 && pattern.openEnds === 2) {
+        liveThrees++;
+      }
     }
-    
-    // 雙三、雙四、三四組合 = 必勝
-    if (liveThrees >= 2) return 80000;  // 雙活三
-    if (liveFours >= 2 || rushFours >= 2) return 90000;  // 雙四
-    if (liveThrees >= 1 && rushFours >= 1) return 90000;  // 三四組合
-    
-    return 0;
-  }, [size, countLine]);
 
-  // 評估單一位置（改進版：完整棋型評分 + 雙威脅檢測）
+    // 必勝組合評分
+    if (liveFours >= 1) return PATTERN_SCORES.LIVE_FOUR;           // 活四 = 必勝
+    if (rushFours >= 2) return PATTERN_SCORES.DOUBLE_RUSH_FOUR;    // 雙沖四
+    if (liveThrees >= 1 && rushFours >= 1) return PATTERN_SCORES.LIVE_THREE_RUSH_FOUR; // 三四組合
+    if (liveThrees >= 2) return PATTERN_SCORES.DOUBLE_LIVE_THREE;  // 雙活三
+
+    return 0;
+  }, [analyzePattern]);
+
+  // ========================================
+  // 優化版：位置評估函數（使用最佳評分表）
+  // ========================================
   const evaluatePosition = useCallback((boardState, row, col, player) => {
     if (boardState[row][col] !== null) return 0;
-    
+
     let score = 0;
     const opponent = player === 'black' ? 'white' : 'black';
     const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
-    
+
     // 1. 立即獲勝檢查（最高優先級）
     const testBoard1 = boardState.map(r => [...r]);
     testBoard1[row][col] = player;
     if (checkWin(testBoard1, row, col, player)) {
-      return 1000000;  // 立即獲勝
+      return PATTERN_SCORES.FIVE;
     }
-    
+
     // 2. 阻擋對手獲勝
     const testBoard2 = boardState.map(r => [...r]);
     testBoard2[row][col] = opponent;
     if (checkWin(testBoard2, row, col, opponent)) {
-      return 950000;  // 必須防守
+      return PATTERN_SCORES.FIVE * 0.95;
     }
-    
+
     // 3. 雙威脅檢測（必勝組合）
-    score += checkDoubleThreats(boardState, row, col, player);
-    score += checkDoubleThreats(boardState, row, col, opponent) * 0.95;
-    
-    // 4. 各方向棋型評分（完整 14 種棋型）
+    const myDoubleThreat = checkDoubleThreats(boardState, row, col, player);
+    const oppDoubleThreat = checkDoubleThreats(boardState, row, col, opponent);
+    score += myDoubleThreat;
+    score += oppDoubleThreat * 0.98; // 對手的威脅必須優先防守
+
+    // 4. 各方向棋型評分（使用最佳評分表）
+    let myLiveThrees = 0, myRushFours = 0;
+    let oppLiveThrees = 0, oppRushFours = 0;
+
     for (const [dr, dc] of directions) {
       // AI 棋型評分
-      const myLine = countLine(boardState, row, col, dr, dc, player);
-      const myCount = myLine.count + 1;
-      
-      // 成5: 100分
-      if (myCount >= 5) score += 100000;
-      // 活4: 90分
-      else if (myCount === 4 && myLine.openEnds === 2) score += 90000;
-      // 沖4: 60分
-      else if (myCount === 4 && myLine.openEnds === 1) score += 60000;
-      // 活3: 50分（關鍵！必須阻擋）
-      else if (myCount === 3 && myLine.openEnds === 2) score += 80000;  // 大幅提升！
-      // 死3: 30分
-      else if (myCount === 3 && myLine.openEnds === 1) score += 30000;
-      // 活2: 20分
-      else if (myCount === 2 && myLine.openEnds === 2) score += 20000;
-      // 死2: 10分
-      else if (myCount === 2 && myLine.openEnds === 1) score += 10000;
-      
-      // 玩家棋型評分（防守加權 0.95）
-      const oppLine = countLine(boardState, row, col, dr, dc, opponent);
-      const oppCount = oppLine.count + 1;
-      
-      // 活4: 90分 × 0.95
-      if (oppCount === 4 && oppLine.openEnds === 2) score += 85500;
-      // 沖4: 60分 × 0.95
-      else if (oppCount === 4 && oppLine.openEnds === 1) score += 57000;
-      // 活3: 50分 × 0.95（關鍵！必須阻擋）
-      else if (oppCount === 3 && oppLine.openEnds === 2) score += 90000;  // 防守優先！
-      // 死3: 30分 × 0.95
-      else if (oppCount === 3 && oppLine.openEnds === 1) score += 28500;
-      // 活2: 20分 × 0.95
-      else if (oppCount === 2 && oppLine.openEnds === 2) score += 19000;
-      // 死2: 10分 × 0.95
-      else if (oppCount === 2 && oppLine.openEnds === 1) score += 9500;
+      const myPattern = analyzePattern(boardState, row, col, dr, dc, player);
+      const myTotal = myPattern.totalStones;
+
+      if (myTotal >= 5) {
+        score += PATTERN_SCORES.FIVE;
+      } else if (myTotal === 4 && myPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_FOUR;
+        myRushFours++; // 也計入四連
+      } else if (myTotal === 4 && myPattern.openEnds === 1) {
+        score += PATTERN_SCORES.RUSH_FOUR;
+        myRushFours++;
+      } else if (myTotal === 3 && myPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_THREE;
+        myLiveThrees++;
+      } else if (myTotal === 3 && myPattern.openEnds === 1) {
+        score += PATTERN_SCORES.DEAD_THREE;
+      } else if (myTotal === 2 && myPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_TWO;
+      } else if (myTotal === 2 && myPattern.openEnds === 1) {
+        score += PATTERN_SCORES.DEAD_TWO;
+      } else if (myTotal === 1 && myPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_ONE;
+      }
+
+      // 對手棋型評分（防守優先）
+      const oppPattern = analyzePattern(boardState, row, col, dr, dc, opponent);
+      const oppTotal = oppPattern.totalStones;
+
+      if (oppTotal >= 5) {
+        score += PATTERN_SCORES.FIVE * 0.95;
+      } else if (oppTotal === 4 && oppPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_FOUR * 0.98; // 必須防守！
+      } else if (oppTotal === 4 && oppPattern.openEnds === 1) {
+        score += PATTERN_SCORES.RUSH_FOUR * 0.98;
+        oppRushFours++;
+      } else if (oppTotal === 3 && oppPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_THREE * 0.95; // 必須防守活三！
+        oppLiveThrees++;
+      } else if (oppTotal === 3 && oppPattern.openEnds === 1) {
+        score += PATTERN_SCORES.DEAD_THREE * 0.9;
+      } else if (oppTotal === 2 && oppPattern.openEnds === 2) {
+        score += PATTERN_SCORES.LIVE_TWO * 0.9;
+      } else if (oppTotal === 2 && oppPattern.openEnds === 1) {
+        score += PATTERN_SCORES.DEAD_TWO * 0.9;
+      }
     }
-    
+
     // 5. 位置加權（中心優先）
     const center = Math.floor(size / 2);
     const distFromCenter = Math.abs(row - center) + Math.abs(col - center);
-    score += Math.max(0, 50 - distFromCenter);
-    
+    score += Math.max(0, 100 - distFromCenter * 5);
+
     return score;
-  }, [size, countLine, checkDoubleThreats, checkWin]);
+  }, [size, analyzePattern, checkDoubleThreats, checkWin]);
 
   // 獲取候選位置
   const getCandidates = useCallback((boardState) => {
@@ -395,7 +465,7 @@ function Gomoku() {
     transpositionTable.set(hash, { depth, value: bestValue, flag });
     
     return bestValue;
-  }, [checkWin, getCandidates, evaluatePosition, size]);
+  }, [checkWin, getCandidatesOptimized, evaluatePosition, size]);
 
   // 整體棋盤評估（靜態評估函數）
   const evaluateBoard = useCallback((boardState, aiPlayer) => {
@@ -474,48 +544,271 @@ function Gomoku() {
     return candidates;
   }, [size]);
 
-  // AI 移動（Alpha-Beta 搜索版本）
+  // ========================================
+  // 第四階段：VCF (Victory by Continuous Four) 檢測
+  // ========================================
+
+  // 尋找所有能形成四連的位置
+  const findFourCreatingMoves = useCallback((boardState, player) => {
+    const moves = [];
+    const candidates = getCandidatesOptimized(boardState);
+
+    for (const [r, c] of candidates) {
+      const testBoard = boardState.map(row => [...row]);
+      testBoard[r][c] = player;
+
+      // 檢查是否形成四連
+      const pattern = analyzePattern(testBoard, r, c, 0, 1, player);
+      if (pattern.totalStones >= 4) {
+        moves.push({ row: r, col: c, pattern });
+        continue;
+      }
+      const pattern2 = analyzePattern(testBoard, r, c, 1, 0, player);
+      if (pattern2.totalStones >= 4) {
+        moves.push({ row: r, col: c, pattern: pattern2 });
+        continue;
+      }
+      const pattern3 = analyzePattern(testBoard, r, c, 1, 1, player);
+      if (pattern3.totalStones >= 4) {
+        moves.push({ row: r, col: c, pattern: pattern3 });
+        continue;
+      }
+      const pattern4 = analyzePattern(testBoard, r, c, 1, -1, player);
+      if (pattern4.totalStones >= 4) {
+        moves.push({ row: r, col: c, pattern: pattern4 });
+      }
+    }
+
+    return moves;
+  }, [analyzePattern, getCandidatesOptimized]);
+
+  // VCF 搜索：尋找連續沖四必勝序列
+  const findVCF = useCallback((boardState, player, depth = 8, memo = new Map()) => {
+    if (depth <= 0) return null;
+
+    const boardKey = JSON.stringify(boardState);
+    if (memo.has(boardKey)) return memo.get(boardKey);
+
+    const opponent = player === 'black' ? 'white' : 'black';
+
+    // 找所有能形成四連的位置
+    const fourMoves = findFourCreatingMoves(boardState, player);
+
+    for (const { row, col } of fourMoves) {
+      const testBoard = boardState.map(row => [...row]);
+      testBoard[row][col] = player;
+
+      // 檢查是否獲勝（五連）
+      if (checkWin(testBoard, row, col, player)) {
+        memo.set(boardKey, [[row, col]]);
+        return [[row, col]];
+      }
+
+      // 檢查是否形成活四（必勝）
+      const threatScore = checkDoubleThreats(testBoard, row, col, player);
+      if (threatScore >= PATTERN_SCORES.LIVE_FOUR) {
+        memo.set(boardKey, [[row, col]]);
+        return [[row, col]];
+      }
+
+      // 找對手必須防守的位置
+      const blockPositions = [];
+      const dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+      for (const [dr, dc] of dirs) {
+        let count = 1;
+        for (let i = 1; i <= 4; i++) {
+          const r = row + i * dr, c = col + i * dc;
+          if (r >= 0 && r < size && c >= 0 && c < size && testBoard[r][c] === player) count++;
+          else break;
+        }
+        for (let i = 1; i <= 4; i++) {
+          const r = row - i * dr, c = col - i * dc;
+          if (r >= 0 && r < size && c >= 0 && c < size && testBoard[r][c] === player) count++;
+          else break;
+        }
+
+        if (count >= 4) {
+          // 找到四連，找防守點
+          for (let i = -4; i <= 4; i++) {
+            const r = row + i * dr, c = col + i * dc;
+            if (r >= 0 && r < size && c >= 0 && c < size && testBoard[r][c] === null) {
+              const blockTest = testBoard.map(row => [...row]);
+              blockTest[r][c] = opponent;
+              if (!checkWin(blockTest, r, c, player)) {
+                blockPositions.push([r, c]);
+              }
+            }
+          }
+        }
+      }
+
+      // 如果對手需要多個防守點 = 必勝
+      if (blockPositions.length > 2) {
+        memo.set(boardKey, [[row, col]]);
+        return [[row, col]];
+      }
+
+      // 嘗試對手的每個防守
+      if (blockPositions.length === 1) {
+        const [br, bc] = blockPositions[0];
+        const afterBlock = testBoard.map(row => [...row]);
+        afterBlock[br][bc] = opponent;
+
+        // 繼續 VCF 搜索
+        const continuation = findVCF(afterBlock, player, depth - 1, memo);
+        if (continuation) {
+          const result = [[row, col], ...continuation];
+          memo.set(boardKey, result);
+          return result;
+        }
+      }
+    }
+
+    memo.set(boardKey, null);
+    return null;
+  }, [findFourCreatingMoves, checkWin, checkDoubleThreats, size]);
+
+  // ========================================
+  // AI 移動（優化版：預搜索威脅檢測 + VCF）
+  // ========================================
   const makeAiMove = useCallback((currentBoard) => {
     const startTime = Date.now();
-    
+
     // 根據難度設定搜索深度
     let searchDepth = 2;
-    if (difficulty === 5) searchDepth = 3;
+    if (difficulty === 5) searchDepth = 4;
     else if (difficulty === 4) searchDepth = 3;
     else if (difficulty === 3) searchDepth = 2;
     else searchDepth = 1;
-    
+
     const candidates = getCandidatesOptimized(currentBoard);
     if (candidates.length === 0) {
       const center = Math.floor(size / 2);
       candidates.push([center, center]);
     }
-    
-    // 先檢查必殺棋（立即獲勝或必須防守）
+
+    // ========================================
+    // 預搜索威脅檢測（必防威脅優先處理）
+    // ========================================
+
+    // 1. 檢查 AI 是否有立即獲勝
     for (const [r, c] of candidates) {
-      // AI 獲勝
-      const testBoard1 = currentBoard.map(row => [...row]);
-      testBoard1[r][c] = 'white';
-      if (checkWin(testBoard1, r, c, 'white')) {
-        executeMove(currentBoard, r, c, startTime);
-        return;
-      }
-      
-      // 防守對方的五連
-      const testBoard2 = currentBoard.map(row => [...row]);
-      testBoard2[r][c] = 'black';
-      if (checkWin(testBoard2, r, c, 'black')) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'white';
+      if (checkWin(testBoard, r, c, 'white')) {
+        console.log('AI: 立即獲勝！');
         executeMove(currentBoard, r, c, startTime);
         return;
       }
     }
-    
+
+    // 2. 檢查對手是否有立即獲勝（必須防守）
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'black';
+      if (checkWin(testBoard, r, c, 'black')) {
+        console.log('AI: 防守五連！');
+        executeMove(currentBoard, r, c, startTime);
+        return;
+      }
+    }
+
+    // 3. 檢查 AI 是否能形成活四（必勝）
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'white';
+      const threatScore = checkDoubleThreats(testBoard, r, c, 'white');
+      if (threatScore >= PATTERN_SCORES.LIVE_FOUR) {
+        console.log('AI: 形成活四必勝！');
+        executeMove(currentBoard, r, c, startTime);
+        return;
+      }
+    }
+
+    // 4. 檢查對手是否能形成活四（必須防守）
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'black';
+      const threatScore = checkDoubleThreats(testBoard, r, c, 'black');
+      if (threatScore >= PATTERN_SCORES.LIVE_FOUR) {
+        console.log('AI: 防守對手活四！');
+        executeMove(currentBoard, r, c, startTime);
+        return;
+      }
+    }
+
+    // 5. 檢查 AI 是否能形成雙活三或三四組合（必勝）
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'white';
+      const threatScore = checkDoubleThreats(testBoard, r, c, 'white');
+      if (threatScore >= PATTERN_SCORES.DOUBLE_LIVE_THREE) {
+        console.log('AI: 形成雙活三/三四組合！');
+        executeMove(currentBoard, r, c, startTime);
+        return;
+      }
+    }
+
+    // 6. 檢查對手是否能形成雙活三或三四組合（必須防守）
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'black';
+      const threatScore = checkDoubleThreats(testBoard, r, c, 'black');
+      if (threatScore >= PATTERN_SCORES.DOUBLE_LIVE_THREE) {
+        console.log('AI: 防守對手雙活三！');
+        executeMove(currentBoard, r, c, startTime);
+        return;
+      }
+    }
+
+    // 7. 高難度：嘗試 VCF 搜索
+    if (difficulty >= 4) {
+      const vcfSequence = findVCF(currentBoard, 'white', 6);
+      if (vcfSequence && vcfSequence.length > 0) {
+        console.log('AI: 找到 VCF 必勝序列！');
+        executeMove(currentBoard, vcfSequence[0][0], vcfSequence[0][1], startTime);
+        return;
+      }
+    }
+
+    // 8. 檢查對手的活三（防守優先）
+    let bestDefensiveMove = null;
+    let bestDefensiveScore = 0;
+
+    for (const [r, c] of candidates) {
+      const testBoard = currentBoard.map(row => [...row]);
+      testBoard[r][c] = 'black';
+
+      // 檢查是否形成活三
+      const pattern1 = analyzePattern(testBoard, r, c, 0, 1, 'black');
+      const pattern2 = analyzePattern(testBoard, r, c, 1, 0, 'black');
+      const pattern3 = analyzePattern(testBoard, r, c, 1, 1, 'black');
+      const pattern4 = analyzePattern(testBoard, r, c, 1, -1, 'black');
+
+      const liveThrees = [pattern1, pattern2, pattern3, pattern4].filter(
+        p => p.totalStones >= 3 && p.openEnds === 2
+      ).length;
+
+      if (liveThrees >= 1) {
+        const score = evaluatePosition(currentBoard, r, c, 'white');
+        if (score > bestDefensiveScore) {
+          bestDefensiveScore = score;
+          bestDefensiveMove = [r, c];
+        }
+      }
+    }
+
+    // ========================================
+    // Alpha-Beta 搜索
+    // ========================================
+
     // 評估所有候選位置
     const scoredCandidates = [];
     for (const [r, c] of candidates) {
       const testBoard = currentBoard.map(row => [...row]);
       testBoard[r][c] = 'white';
-      
+
       let score;
       if (searchDepth > 1) {
         // 使用 Alpha-Beta 搜索
@@ -524,35 +817,46 @@ function Gomoku() {
         // 深度 1：直接評估
         score = evaluatePosition(currentBoard, r, c, 'white');
       }
-      
+
       scoredCandidates.push({ row: r, col: c, score });
     }
-    
+
     // 排序
     scoredCandidates.sort((a, b) => b.score - a.score);
-    
+
+    // 如果有防守活三的位置，給予額外權重
+    if (bestDefensiveMove && difficulty >= 3) {
+      const defIdx = scoredCandidates.findIndex(m => m.row === bestDefensiveMove[0] && m.col === bestDefensiveMove[1]);
+      if (defIdx > 0) {
+        // 將防守位置提升到前幾名
+        const defMove = scoredCandidates.splice(defIdx, 1)[0];
+        defMove.score = Math.max(defMove.score, scoredCandidates[0].score * 0.95);
+        scoredCandidates.unshift(defMove);
+      }
+    }
+
     // 根據難度選擇
     let bestMove;
     if (difficulty === 5) {
       bestMove = scoredCandidates[0];
     } else if (difficulty === 4) {
-      bestMove = Math.random() < 0.85 ? scoredCandidates[0] : scoredCandidates[Math.min(1, scoredCandidates.length - 1)];
+      bestMove = Math.random() < 0.9 ? scoredCandidates[0] : scoredCandidates[Math.min(1, scoredCandidates.length - 1)];
     } else if (difficulty === 3) {
       const top5 = scoredCandidates.slice(0, Math.min(5, scoredCandidates.length));
-      bestMove = Math.random() < 0.7 ? scoredCandidates[0] : top5[Math.floor(Math.random() * top5.length)];
+      bestMove = Math.random() < 0.75 ? scoredCandidates[0] : top5[Math.floor(Math.random() * top5.length)];
     } else if (difficulty === 2) {
       const top10 = scoredCandidates.slice(0, Math.min(10, scoredCandidates.length));
-      bestMove = Math.random() < 0.5 ? scoredCandidates[0] : top10[Math.floor(Math.random() * top10.length)];
+      bestMove = Math.random() < 0.55 ? scoredCandidates[0] : top10[Math.floor(Math.random() * top10.length)];
     } else {
-      bestMove = Math.random() < 0.3 ? scoredCandidates[0] : scoredCandidates[Math.floor(Math.random() * scoredCandidates.length)];
+      bestMove = Math.random() < 0.35 ? scoredCandidates[0] : scoredCandidates[Math.floor(Math.random() * scoredCandidates.length)];
     }
-    
+
     if (!bestMove && candidates.length > 0) {
       bestMove = { row: candidates[0][0], col: candidates[0][1] };
     }
-    
+
     executeMove(currentBoard, bestMove.row, bestMove.col, startTime);
-  }, [difficulty, size, checkWin, alphaBeta, evaluatePosition, getCandidatesOptimized]);
+  }, [difficulty, size, checkWin, alphaBeta, evaluatePosition, getCandidatesOptimized, checkDoubleThreats, analyzePattern, findVCF]);
 
   // 執行移動（輔助函數）
   const executeMove = useCallback((currentBoard, row, col, startTime) => {
