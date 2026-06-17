@@ -1,6 +1,32 @@
 # Project History
 
-## [v1.4.0] - 2026-04-06
+## [v0.4.1] - 2026-06-17
+### Fixed
+- **GitHub Pages SPA Routing**: 新增 404.html 重定向機制，解決五子棋等子頁面 404 問題
+  - 使用 SPA GitHub Pages 技術將路徑轉換為查詢參數
+  - index.html 處理查詢參數還原為路徑
+  - 所有遊戲路由（/chess, /chinese-chess, /sudoku, /gomoku）現在都可以正常訪問
+
+## [v0.4.0] - 2026-06-17
+### Improved
+- **五子棋 AI 優化**：修正棋型檢測 + VCF算法 + 預搜索威脅
+- **活三防守提升**：提升活三防守優先級
+
+## [v0.3.0] - 2026-06-02
+### Added
+- **Alpha-Beta AI**: 五子棋 AI 導入 Alpha-Beta 搜索 + 置換表優化
+- **版本資訊**: 首頁新增更新時間標記
+
+## [v0.2.0] - 2026-05-xx
+### Improved
+- **AI Enhancement**: 改進中國象棋與五子棋 AI 難度機制
+
+## [v0.1.0] - 2026-05-xx
+### Added
+- **遊戲選單架構**: 重構為遊戲選單架構
+- **中國象棋**: 新增中國象棋遊戲
+- **數獨**: 新增數獨遊戲
+- **五子棋**: 新增五子棋遊戲
 ### Added
 - **Humanized AI Difficulty**: 重新設計難度曲線。Level 1 導入 50% 失誤率，Level 2 導入 20% 失誤率，讓初學者更有成就感。
 - **Mobile & iPad Optimization**: 徹底重構 CSS 佈局，解決 iPad Safari 工具列遮擋按鈕的問題。
